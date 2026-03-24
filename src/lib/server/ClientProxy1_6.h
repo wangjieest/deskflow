@@ -19,7 +19,13 @@ public:
   ~ClientProxy1_6() override = default;
 
   void setClipboard(ClipboardID id, const IClipboard *clipboard) override;
+  void setClipboardMeta(ClipboardID id, const ClipboardMeta &meta) override;
   bool recvClipboard() override;
+  bool parseMessage(const uint8_t *code) override;
+
+protected:
+  //! Handle clipboard data request from client
+  void handleClipboardDataRequest();
 
 private:
   IEventQueue *m_events;

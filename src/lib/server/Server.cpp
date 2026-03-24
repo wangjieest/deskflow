@@ -1,16 +1,23 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers.
+ * SPDX-FileCopyrightText: (C) 2025 AutoDeskflow Developers.
  * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "server/Server.h"
+#include "server/ClientProxy1_5.h"
+#include "server/FileTransferListener.h"
+
+#include "client/FileTransferConnection.h"
 
 #include "base/IEventQueue.h"
 #include "base/Log.h"
 #include "deskflow/AppUtil.h"
+#include "deskflow/FileTransfer.h"
+#include "deskflow/FileTransferServer.h"
+#include "deskflow/ClipboardTransferThread.h"
 #include "deskflow/DeskflowException.h"
 #include "deskflow/IPlatformScreen.h"
 #include "deskflow/OptionTypes.h"
@@ -19,7 +26,9 @@
 #include "deskflow/Screen.h"
 #include "deskflow/StreamChunker.h"
 #include "deskflow/ipc/CoreIpc.h"
+#include "net/SocketMultiplexer.h"
 #include "net/TCPSocket.h"
+#include "net/TCPSocketFactory.h"
 #include "server/ClientListener.h"
 #include "server/ClientProxy.h"
 #include "server/ClientProxyUnknown.h"
@@ -33,6 +42,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <fstream>
 
 using namespace deskflow::server;
 
@@ -139,10 +149,103 @@ Server::Server(ServerConfig &config, PrimaryClient *primaryClient, deskflow::Scr
     LOG_NOTE("default screen lock is on, locking cursor to screen");
     m_lockedToScreen = true;
   }
+
+  // Register file request callback for Host paste operations
+  // This allows the host (server) to request files from clients when pasting
+  // files that were copied on a client machine
+  FileTransfer::setFileRequestCallback(
+      [this](const std::string &filePath, const std::string &relativePath, bool isDir, uint32_t /*batchId*/,
+             const std::string & /*destFolder*/) -> uint32_t {
+        // Find the client that owns the clipboard
+        // Use clipboard 0 (primary clipboard) for file transfers
+        const ClipboardInfo &clipboard = m_clipboards[0];
+
+        // Check if the clipboard owner is the primary client (server itself)
+        if (clipboard.m_clipboardOwner == getName(m_primaryClient)) {
+          LOG_DEBUG("clipboard owned by primary client, no need to request from remote");
+          return 0;
+        }
+
+        // Check for P2P source info - try point-to-point transfer first
+        if (!clipboard.m_meta.sourceAddress.empty() && clipboard.m_meta.sourcePort > 0) {
+          LOG_INFO(
+              "[FileTransfer] P2P source available: %s:%u, sessionId=%llu", clipboard.m_meta.sourceAddress.c_str(),
+              clipboard.m_meta.sourcePort, clipboard.m_meta.sessionId
+          );
+
+          uint32_t requestId =
+              requestFileP2P(clipboard.m_meta.sourceAddress, clipboard.m_meta.sourcePort, clipboard.m_meta.sessionId, filePath, relativePath, isDir);
+
+          if (requestId != 0) {
+            LOG_INFO("[FileTransfer] P2P request initiated, requestId=%u", requestId);
+            return requestId;
+          }
+          LOG_WARN("[FileTransfer] P2P connection failed, falling back to message relay");
+        }
+
+        // Find the client that owns the clipboard
+        auto it = m_clients.find(clipboard.m_clipboardOwner);
+        if (it == m_clients.end()) {
+          LOG_ERR("clipboard owner \"%s\" not found in client list", clipboard.m_clipboardOwner.c_str());
+          return 0;
+        }
+
+        BaseClientProxy *owner = it->second;
+
+        // The owner must be a ClientProxy1_5 or higher to support file requests
+        auto *clientProxy = dynamic_cast<ClientProxy1_5 *>(owner);
+        if (clientProxy == nullptr) {
+          LOG_ERR("clipboard owner \"%s\" does not support file transfer protocol", clipboard.m_clipboardOwner.c_str());
+          return 0;
+        }
+
+        // Request the file from the client (fallback via message protocol)
+        return clientProxy->requestFileFromClient(filePath, relativePath, isDir, clipboard.m_sessionId);
+      }
+  );
 }
 
 Server::~Server()
 {
+  // Clear file request callback to avoid dangling reference
+  FileTransfer::setFileRequestCallback(nullptr);
+
+  // Stop file transfer server if running (point-to-point transfer)
+  if (m_fileTransferServer) {
+    m_fileTransferServer->stop();
+    delete m_fileTransferServer;
+    m_fileTransferServer = nullptr;
+  }
+  if (m_fileTransferSocketFactory) {
+    delete m_fileTransferSocketFactory;
+    m_fileTransferSocketFactory = nullptr;
+  }
+  if (m_fileTransferMultiplexer) {
+    delete m_fileTransferMultiplexer;
+    m_fileTransferMultiplexer = nullptr;
+  }
+
+  // Stop file transfer listener if running
+  if (m_fileTransferListener) {
+    m_fileTransferListener->stop();
+    delete m_fileTransferListener;
+    m_fileTransferListener = nullptr;
+  }
+
+  // Close P2P file transfer connection if active
+  if (m_fileTransferConn) {
+    m_fileTransferConn->close();
+    delete m_fileTransferConn;
+    m_fileTransferConn = nullptr;
+  }
+
+  // Stop clipboard transfer thread if running
+  if (m_clipboardTransferThread) {
+    m_clipboardTransferThread->stop();
+    delete m_clipboardTransferThread;
+    m_clipboardTransferThread = nullptr;
+  }
+
   // remove event handlers and timers
   using enum EventTypes;
   m_events->removeHandler(KeyStateKeyDown, m_inputFilter);
@@ -277,9 +380,13 @@ void Server::disconnect()
 
 std::string Server::protocolString() const
 {
-  if (m_protocol == NetworkProtocol::Unknown)
-    throw InvalidProtocolException();
-  return networkProtocolToName(m_protocol).toStdString();
+  using enum NetworkProtocol;
+  if (m_protocol == Synergy) {
+    return kSynergyProtocolName;
+  } else if (m_protocol == Barrier) {
+    return kBarrierProtocolName;
+  }
+  throw InvalidProtocolException();
 }
 
 uint32_t Server::getNumClients() const
@@ -305,6 +412,94 @@ void Server::sendConnectedClientsIpc() const
     }
   }
   ipcSendToClient("connectedClients", clientList.join(","));
+}
+
+const ClipboardMeta &Server::getClipboardMeta(ClipboardID id) const
+{
+  return m_clipboards[id].m_meta;
+}
+
+uint64_t Server::getClipboardSessionId(ClipboardID id) const
+{
+  return m_clipboards[id].m_sessionId;
+}
+
+ClipboardDataStatus Server::validateFileRequest(ClipboardID id, uint64_t sessionId, const std::string &filePath) const
+{
+  const ClipboardInfo &clipboard = m_clipboards[id];
+
+  // Check session ID match
+  if (sessionId != clipboard.m_sessionId) {
+    LOG_INFO(
+        "file request rejected: session mismatch (request=%llu, current=%llu)", sessionId, clipboard.m_sessionId
+    );
+    return ClipboardDataStatus::SessionExpired;
+  }
+
+  // Check content type is FileList
+  if (clipboard.m_meta.contentType != static_cast<uint32_t>(IClipboard::Format::FileList)) {
+    LOG_INFO("file request rejected: clipboard is not FileList type");
+    return ClipboardDataStatus::UnsupportedFormat;
+  }
+
+  // Check path is in whitelist
+  if (clipboard.m_allowedFilePaths.find(filePath) == clipboard.m_allowedFilePaths.end()) {
+    LOG_INFO("file request rejected: path not in whitelist: %s", filePath.c_str());
+    return ClipboardDataStatus::InvalidPath;
+  }
+
+  return ClipboardDataStatus::Success;
+}
+
+void Server::sendClipboardToClient(BaseClientProxy *client, ClipboardID id)
+{
+  if (id >= kClipboardEnd || client == nullptr) {
+    return;
+  }
+
+  ClipboardInfo &clipboard = m_clipboards[id];
+
+  // Check if client already has this data
+  if (clientHasClipboardData(client, id)) {
+    LOG_DEBUG(
+        "skipping clipboard %d send to \"%s\" - client already has data for session %llu", id,
+        client->getName().c_str(), clipboard.m_sessionId
+    );
+    return;
+  }
+
+  LOG_DEBUG("sending clipboard %d to client \"%s\" for deferred request", id, client->getName().c_str());
+
+  // Send the full clipboard data to the client
+  client->setClipboard(id, &clipboard.m_clipboard);
+
+  // Mark client as having received the data
+  markClientHasClipboardData(client, id);
+}
+
+bool Server::clientHasClipboardData(BaseClientProxy *client, ClipboardID id) const
+{
+  if (id >= kClipboardEnd || client == nullptr) {
+    return false;
+  }
+
+  const ClipboardInfo &clipboard = m_clipboards[id];
+  return clipboard.m_clientsWithFullData.find(client) != clipboard.m_clientsWithFullData.end();
+}
+
+void Server::markClientHasClipboardData(BaseClientProxy *client, ClipboardID id)
+{
+  if (id >= kClipboardEnd || client == nullptr) {
+    return;
+  }
+
+  ClipboardInfo &clipboard = m_clipboards[id];
+  clipboard.m_clientsWithFullData.insert(client);
+
+  LOG_DEBUG(
+      "marked client \"%s\" as having clipboard %d data (session %llu)", client->getName().c_str(), id,
+      clipboard.m_sessionId
+  );
 }
 
 std::string Server::getName(const BaseClientProxy *client) const
@@ -476,11 +671,35 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
     if (m_enableClipboard) {
       // send the clipboard data to new active screen
       for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
-        // Hackity hackity hack
-        if (m_clipboards[id].m_clipboard.marshall().size() > (m_maximumClipboardSize * 1024)) {
+        ClipboardInfo &clipboard = m_clipboards[id];
+
+        // Check if this client already has the data for current session
+        if (clientHasClipboardData(m_active, id)) {
+          LOG_DEBUG(
+              "skipping clipboard %d for \"%s\" - already has data for session %llu", id, m_active->getName().c_str(),
+              clipboard.m_sessionId
+          );
           continue;
         }
-        m_active->setClipboard(id, &m_clipboards[id].m_clipboard);
+
+        // Check if deferred mode - send metadata instead of full data
+        if (clipboard.m_meta.deferred) {
+          LOG_DEBUG(
+              "sending clipboard %d metadata to \"%s\" (deferred mode, session %llu)", id, m_active->getName().c_str(),
+              clipboard.m_sessionId
+          );
+          m_active->setClipboardMeta(id, clipboard.m_meta);
+          continue;
+        }
+
+        // Check size threshold
+        if (clipboard.m_clipboard.marshall().size() > (m_maximumClipboardSize * 1024)) {
+          continue;
+        }
+
+        // Send full data and mark client as having received it
+        m_active->setClipboard(id, &clipboard.m_clipboard);
+        markClientHasClipboardData(m_active, id);
       }
     }
 
@@ -1086,10 +1305,15 @@ void Server::processOptions()
     const OptionID id = optionId;
     const OptionValue value = optionValue;
     if (id == kOptionProtocol) {
-      const auto enumValue = networkProtocolFromInt(value);
-      if (enumValue == NetworkProtocol::Unknown)
+      using enum NetworkProtocol;
+      const auto enumValue = static_cast<NetworkProtocol>(value);
+      if (enumValue == Synergy) {
+        m_protocol = Synergy;
+      } else if (enumValue == Barrier) {
+        m_protocol = Barrier;
+      } else {
         throw InvalidProtocolException();
-      m_protocol = enumValue;
+      }
     } else if (id == kOptionScreenSwitchDelay) {
       m_switchWaitDelay = 1.0e-3 * static_cast<double>(value);
       if (m_switchWaitDelay < 0.0) {
@@ -1123,8 +1347,8 @@ void Server::processOptions()
       if (value <= 0) {
         m_maximumClipboardSize = 0;
         LOG_NOTE(
-            "clipboard sharing is disabled because the "
-            "maximum shared clipboard size is set to 0"
+            "clipboard size threshold is 0, all supported formats "
+            "will use ClipboardTransferThread (P2P mode)"
         );
       } else {
         m_maximumClipboardSize = static_cast<size_t>(value);
@@ -1169,7 +1393,9 @@ void Server::handleShapeChanged(BaseClientProxy *client)
 
 void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber)
 {
-  if (!m_enableClipboard || (m_maximumClipboardSize == 0)) {
+  // Note: m_maximumClipboardSize == 0 means use ClipboardTransferThread for all transfers
+  // (not "disable clipboard" as it was before)
+  if (!m_enableClipboard) {
     return;
   }
 
@@ -1235,13 +1461,13 @@ void Server::handleKeyDownEvent(const Event &event)
 {
   const auto *info = static_cast<IPlatformScreen::KeyInfo *>(event.getData());
   auto lang = AppUtil::instance().getCurrentLanguageCode();
-  onKeyDown(info->m_key, info->m_mask, info->m_button, lang, info->m_screens.c_str());
+  onKeyDown(info->m_key, info->m_mask, info->m_button, lang, info->m_screens);
 }
 
 void Server::handleKeyUpEvent(const Event &event)
 {
   auto *info = static_cast<IPlatformScreen::KeyInfo *>(event.getData());
-  onKeyUp(info->m_key, info->m_mask, info->m_button, info->m_screens.c_str());
+  onKeyUp(info->m_key, info->m_mask, info->m_button, info->m_screens);
 }
 
 void Server::handleKeyRepeatEvent(const Event &event)
@@ -1320,7 +1546,7 @@ void Server::handleClientCloseTimeout(BaseClientProxy *client)
 
 void Server::handleSwitchToScreenEvent(const Event &event)
 {
-  const auto *info = static_cast<SwitchToScreenInfo *>(event.getData());
+  auto *info = static_cast<SwitchToScreenInfo *>(event.getData());
 
   ClientList::const_iterator index = m_clients.find(info->m_screen);
   if (index == m_clients.end()) {
@@ -1462,13 +1688,6 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
   sender->getClipboard(id, &clipboard.m_clipboard);
 
   std::string data = clipboard.m_clipboard.marshall();
-  if (data.size() > m_maximumClipboardSize * 1024) {
-    LOG_NOTE(
-        "not updating clipboard because it's over the size limit (%i KB) configured by the server",
-        m_maximumClipboardSize
-    );
-    return;
-  }
 
   // ignore if data hasn't changed
   if (data == clipboard.m_clipboardData) {
@@ -1480,14 +1699,161 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
   LOG_INFO("screen \"%s\" updated clipboard %d", clipboard.m_clipboardOwner.c_str(), id);
   clipboard.m_clipboardData = data;
 
+  // Update session ID for deferred transfer validation
+  // This also clears the list of clients that have received full data
+  clipboard.m_sessionId = m_nextSessionId++;
+  clipboard.m_allowedFilePaths.clear();
+  clipboard.m_clientsWithFullData.clear();
+
+  // Build metadata based on clipboard content
+  updateClipboardMeta(clipboard);
+
+  // Deferred mode applies to FileList (always) and Bitmap (based on threshold)
+  IClipboard::Format format = static_cast<IClipboard::Format>(clipboard.m_meta.contentType);
+
+  // FileList ALWAYS uses deferred/P2P mode because original clipboard flow doesn't support file transfer
+  // Bitmap uses deferred mode only when threshold is 0 or size exceeds threshold
+  bool useDeferredMode = false;
+  if (format == IClipboard::Format::FileList) {
+    // FileList always uses ClipboardTransferThread for P2P transfer
+    useDeferredMode = true;
+  } else if (format == IClipboard::Format::Bitmap) {
+    // Bitmap uses deferred mode based on size threshold
+    useDeferredMode = (m_maximumClipboardSize == 0 || data.size() >= m_maximumClipboardSize * 1024);
+  }
+  clipboard.m_meta.deferred = useDeferredMode;
+
+  LOG_INFO(
+      "clipboard %d session updated: id=%llu, type=%u, size=%llu, deferred=%s", id, clipboard.m_sessionId,
+      clipboard.m_meta.contentType, clipboard.m_meta.totalSize, useDeferredMode ? "true" : "false"
+  );
+
   // tell all clients except the sender that the clipboard is dirty
   for (ClientList::const_iterator index = m_clients.begin(); index != m_clients.end(); ++index) {
     BaseClientProxy *client = index->second;
     client->setClipboardDirty(id, client != sender);
   }
 
-  // send the new clipboard to the active screen
-  m_active->setClipboard(id, &clipboard.m_clipboard);
+  if (useDeferredMode) {
+    // Send only metadata - client will request actual data when pasting
+    m_active->setClipboardMeta(id, clipboard.m_meta);
+    if (format == IClipboard::Format::FileList) {
+      LOG_INFO("clipboard %d using deferred mode (FileList always uses P2P)", id);
+    } else if (m_maximumClipboardSize == 0) {
+      LOG_INFO("clipboard %d using deferred mode (threshold=0, all formats use P2P)", id);
+    } else {
+      LOG_INFO(
+          "clipboard %d using deferred mode (size %zu KB >= threshold %zu KB)", id, data.size() / 1024,
+          m_maximumClipboardSize
+      );
+    }
+
+#ifdef _WIN32
+    // On Windows Host, when active screen is primary (server's own screen)
+    // and source has P2P info, use ClipboardTransferThread for non-blocking delayed rendering
+    // Note: Only handle kClipboardClipboard (id=0), not kClipboardSelection (id=1, X11 only)
+    if (id == kClipboardClipboard && m_active == m_primaryClient && format == IClipboard::Format::FileList &&
+        !clipboard.m_meta.sourceAddress.empty() && clipboard.m_meta.sourcePort > 0) {
+
+      // Ensure ClipboardTransferThread is running
+      if (!m_clipboardTransferThread) {
+        m_clipboardTransferThread = new ClipboardTransferThread();
+      }
+      if (!m_clipboardTransferThread->isRunning()) {
+        m_clipboardTransferThread->start();
+      }
+
+      if (m_clipboardTransferThread && m_clipboardTransferThread->isRunning()) {
+        // Parse file list from clipboard data
+        std::vector<ClipboardTransferFileInfo> files;
+        std::string fileListJson = clipboard.m_clipboard.get(IClipboard::Format::FileList);
+
+        // Parse file entries from JSON - find all "path" and "size" fields
+        // Format: [{"__source":{...}}, {"path":"...", "size":123, ...}, ...]
+        size_t pos = 0;
+        while (pos < fileListJson.size()) {
+          // Find "path":"
+          size_t pathKeyPos = fileListJson.find("\"path\":", pos);
+          if (pathKeyPos == std::string::npos) break;
+
+          // Extract path value
+          size_t pathValStart = fileListJson.find("\"", pathKeyPos + 7);
+          if (pathValStart == std::string::npos) break;
+          pathValStart++; // Skip opening quote
+          size_t pathValEnd = fileListJson.find("\"", pathValStart);
+          if (pathValEnd == std::string::npos) break;
+
+          std::string path = fileListJson.substr(pathValStart, pathValEnd - pathValStart);
+
+          // Find "size":
+          size_t sizeKeyPos = fileListJson.find("\"size\":", pathValEnd);
+          uint64_t size = 0;
+          if (sizeKeyPos != std::string::npos) {
+            size_t sizeValStart = sizeKeyPos + 7;
+            while (sizeValStart < fileListJson.size() && fileListJson[sizeValStart] == ' ') sizeValStart++;
+            while (sizeValStart < fileListJson.size() &&
+                   fileListJson[sizeValStart] >= '0' && fileListJson[sizeValStart] <= '9') {
+              size = size * 10 + (fileListJson[sizeValStart] - '0');
+              sizeValStart++;
+            }
+          }
+
+          // Check if it's a directory
+          bool isDir = (fileListJson.find("\"isDir\":true", pathValEnd) != std::string::npos &&
+                        fileListJson.find("\"isDir\":true", pathValEnd) < fileListJson.find("}", pathValEnd));
+
+          if (!path.empty() && path.find("__source") == std::string::npos) {
+            ClipboardTransferFileInfo info;
+            info.path = path;
+            info.relativePath = path;
+            // Extract just the filename for relative path
+            size_t lastSlash = path.find_last_of("/\\");
+            if (lastSlash != std::string::npos) {
+              info.relativePath = path.substr(lastSlash + 1);
+            }
+            info.size = size;
+            info.isDir = isDir;
+            files.push_back(std::move(info));
+            LOG_DEBUG("[Server] parsed file for transfer: path=%s, size=%llu", path.c_str(), size);
+          }
+
+          pos = pathValEnd + 1;
+        }
+
+        if (!files.empty()) {
+          LOG_INFO(
+              "[Server] using ClipboardTransferThread for %zu files from %s:%u (sessionId=%llu)",
+              files.size(), clipboard.m_meta.sourceAddress.c_str(),
+              clipboard.m_meta.sourcePort, clipboard.m_meta.sessionId
+          );
+
+          // Set up delayed rendering via ClipboardTransferThread
+          m_clipboardTransferThread->setDelayedRenderingFiles(
+              files,
+              clipboard.m_meta.sourceAddress,
+              clipboard.m_meta.sourcePort,
+              clipboard.m_meta.sessionId
+          );
+
+          // Mark the active client as having received the full data
+          markClientHasClipboardData(m_active, id);
+          return; // Skip the normal setClipboard path
+        } else {
+          LOG_WARN("[Server] failed to parse file list, falling back to normal path");
+        }
+      } else {
+        LOG_WARN("[Server] ClipboardTransferThread not available, falling back to blocking path");
+      }
+    }
+#endif
+    // Deferred mode - don't send full data here, client will request via P2P when pasting
+  } else {
+    // Send full clipboard data immediately (for all formats including Text, HTML, etc.)
+    m_active->setClipboard(id, &clipboard.m_clipboard);
+
+    // Mark the active client as having received the full data
+    markClientHasClipboardData(m_active, id);
+  }
 }
 
 void Server::onScreensaver(bool activated)
@@ -1621,7 +1987,7 @@ void Server::onMouseUp(ButtonID id)
 
 bool Server::onMouseMovePrimary(int32_t x, int32_t y)
 {
-  LOG_DEBUG2("onMouseMovePrimary %d,%d", x, y);
+  LOG_DEBUG4("onMouseMovePrimary %d,%d", x, y);
 
   // mouse move on primary (server's) screen
   if (m_active != m_primaryClient) {
@@ -2072,4 +2438,459 @@ void Server::forceLeaveClient(const BaseClientProxy *client)
 
   // tell primary client about the active sides
   m_primaryClient->reconfigure(getActivePrimarySides());
+}
+
+void Server::updateClipboardMeta(ClipboardInfo &clipboard)
+{
+  // Determine content type and build metadata
+  Clipboard &cb = clipboard.m_clipboard;
+
+  // Reopen clipboard since getClipboard() closes it after copying
+  cb.open(cb.getTime());
+
+  // Check each format in the clipboard
+  if (cb.has(IClipboard::Format::FileList)) {
+    // File list content
+    std::string fileListData = cb.get(IClipboard::Format::FileList);
+    LOG_INFO("[Server] updateClipboardMeta: FileList data (len=%zu): %.200s", fileListData.size(), fileListData.c_str());
+
+    clipboard.m_meta =
+        ClipboardMeta::createForFileList(clipboard.m_sessionId, fileListData, fileListData.size(), 0);
+
+    // Parse __source metadata from FileList JSON for point-to-point transfer
+    // Format: [{"__source":{"address":"IP","port":PORT,"sessionId":ID}}, {...files...}]
+    size_t sourceStart = fileListData.find("\"__source\"");
+    LOG_DEBUG("[Server] searching for __source in FileList, found at: %zu", sourceStart);
+    if (sourceStart != std::string::npos) {
+      // Find the containing object
+      size_t objStart = fileListData.rfind("{", sourceStart);
+      size_t objEnd = fileListData.find("}", sourceStart);
+      if (objStart != std::string::npos && objEnd != std::string::npos) {
+        // Extract address
+        size_t addrStart = fileListData.find("\"address\":\"", objStart);
+        if (addrStart != std::string::npos && addrStart < objEnd) {
+          addrStart += 11; // Skip "address":"
+          size_t addrEnd = fileListData.find("\"", addrStart);
+          if (addrEnd != std::string::npos && addrEnd < objEnd) {
+            clipboard.m_meta.sourceAddress = fileListData.substr(addrStart, addrEnd - addrStart);
+          }
+        }
+
+        // Extract port
+        size_t portStart = fileListData.find("\"port\":", objStart);
+        if (portStart != std::string::npos && portStart < objEnd) {
+          portStart += 7; // Skip "port":
+          while (portStart < objEnd && fileListData[portStart] == ' ') portStart++;
+          uint16_t port = 0;
+          while (portStart < objEnd && fileListData[portStart] >= '0' && fileListData[portStart] <= '9') {
+            port = port * 10 + (fileListData[portStart] - '0');
+            portStart++;
+          }
+          clipboard.m_meta.sourcePort = port;
+        }
+
+        // Extract sessionId from __source - critical for P2P file transfer
+        // The source machine registers files under this sessionId, so we must use it
+        size_t sessionStart = fileListData.find("\"sessionId\":", objStart);
+        if (sessionStart != std::string::npos && sessionStart < objEnd) {
+          sessionStart += 12; // Skip "sessionId":
+          while (sessionStart < objEnd && fileListData[sessionStart] == ' ') sessionStart++;
+          uint64_t sessionId = 0;
+          while (sessionStart < objEnd && fileListData[sessionStart] >= '0' && fileListData[sessionStart] <= '9') {
+            sessionId = sessionId * 10 + (fileListData[sessionStart] - '0');
+            sessionStart++;
+          }
+          // Use the source's sessionId instead of local clipboard.m_sessionId
+          clipboard.m_meta.sessionId = sessionId;
+          LOG_DEBUG("[Server] extracted sessionId from __source: %llu", sessionId);
+        }
+
+        LOG_INFO(
+            "parsed source info from FileList: address=%s, port=%u, sessionId=%llu",
+            clipboard.m_meta.sourceAddress.c_str(), clipboard.m_meta.sourcePort, clipboard.m_meta.sessionId
+        );
+      }
+    } else if (clipboard.m_clipboardOwner == getName(m_primaryClient)) {
+      // No __source in FileList and clipboard is owned by host
+      // Start host's file transfer server for point-to-point transfer
+      startHostFileTransferServer(fileListData);
+
+      if (m_fileTransferServer && m_fileTransferServer->isRunning()) {
+        clipboard.m_meta.sourceAddress = m_fileTransferServer->getLocalAddress();
+        clipboard.m_meta.sourcePort = m_fileTransferServer->getPort();
+        LOG_INFO(
+            "[Server] host is clipboard source: address=%s, port=%u, sessionId=%llu",
+            clipboard.m_meta.sourceAddress.c_str(), clipboard.m_meta.sourcePort, m_currentFileSessionId
+        );
+      }
+    }
+
+    // Parse file paths from clipboard data and add to whitelist
+    // The file list format varies by platform, but typically contains paths
+    // separated by some delimiter. Parse and add each path.
+    parseFileListToWhitelist(clipboard, fileListData);
+
+    LOG_DEBUG(
+        "clipboard meta updated for FileList: session=%llu, files in whitelist=%zu, sourceAddr=%s, sourcePort=%u",
+        clipboard.m_sessionId, clipboard.m_allowedFilePaths.size(),
+        clipboard.m_meta.sourceAddress.c_str(), clipboard.m_meta.sourcePort
+    );
+  } else if (cb.has(IClipboard::Format::Bitmap)) {
+    std::string bitmapData = cb.get(IClipboard::Format::Bitmap);
+    clipboard.m_meta = ClipboardMeta::createForBitmap(clipboard.m_sessionId, bitmapData.size());
+  } else if (cb.has(IClipboard::Format::HTML)) {
+    std::string htmlData = cb.get(IClipboard::Format::HTML);
+    std::string preview = htmlData.substr(0, (std::min)(size_t(100), htmlData.size()));
+    clipboard.m_meta = ClipboardMeta::createForHtml(clipboard.m_sessionId, htmlData.size(), preview);
+  } else if (cb.has(IClipboard::Format::Text)) {
+    std::string textData = cb.get(IClipboard::Format::Text);
+    std::string preview = textData.substr(0, (std::min)(size_t(100), textData.size()));
+    clipboard.m_meta = ClipboardMeta::createForText(clipboard.m_sessionId, textData.size(), preview);
+  } else {
+    // Unknown or empty content
+    clipboard.m_meta = ClipboardMeta();
+    clipboard.m_meta.sessionId = clipboard.m_sessionId;
+  }
+}
+
+void Server::parseFileListToWhitelist(ClipboardInfo &clipboard, const std::string &fileListData)
+{
+  // The file list data format depends on the source platform.
+  // For now, we parse the JSON format used in our file transfer protocol.
+  // Format: [{"path":"...", "name":"...", "size":123, "isDir":false}, ...]
+
+  clipboard.m_allowedFilePaths.clear();
+
+  if (fileListData.empty()) {
+    return;
+  }
+
+  // Simple JSON array parser for file paths
+  // Look for "path":"..." patterns
+  size_t pos = 0;
+  while ((pos = fileListData.find("\"path\":\"", pos)) != std::string::npos) {
+    pos += 8; // Skip "path":"
+    size_t endPos = pos;
+
+    // Find end of string, handling escapes
+    while (endPos < fileListData.size() && fileListData[endPos] != '"') {
+      if (fileListData[endPos] == '\\' && endPos + 1 < fileListData.size()) {
+        endPos += 2;
+      } else {
+        endPos++;
+      }
+    }
+
+    // Unescape the path
+    std::string path;
+    for (size_t i = pos; i < endPos; ++i) {
+      if (fileListData[i] == '\\' && i + 1 < endPos) {
+        ++i;
+        switch (fileListData[i]) {
+        case 'n':
+          path += '\n';
+          break;
+        case 'r':
+          path += '\r';
+          break;
+        case 't':
+          path += '\t';
+          break;
+        default:
+          path += fileListData[i];
+        }
+      } else {
+        path += fileListData[i];
+      }
+    }
+
+    if (!path.empty()) {
+      clipboard.m_allowedFilePaths.insert(path);
+      LOG_DEBUG1("added file to whitelist: %s", path.c_str());
+    }
+
+    pos = endPos + 1;
+  }
+}
+
+void Server::startHostFileTransferServer(const std::string &fileListData)
+{
+  if (fileListData.empty()) {
+    LOG_DEBUG("[Server] no file list data for transfer server");
+    return;
+  }
+
+  // Generate new session ID
+  m_currentFileSessionId = static_cast<uint64_t>(std::time(nullptr)) << 32 | static_cast<uint64_t>(std::rand());
+
+  LOG_INFO("[Server] starting host file transfer server (sessionId=%llu)", m_currentFileSessionId);
+
+  // Create file transfer server if needed
+  if (!m_fileTransferServer) {
+    if (!m_fileTransferMultiplexer) {
+      m_fileTransferMultiplexer = new SocketMultiplexer();
+      LOG_DEBUG("[Server] created dedicated SocketMultiplexer for file transfer server");
+    }
+    if (!m_fileTransferSocketFactory) {
+      m_fileTransferSocketFactory = new TCPSocketFactory(m_events, m_fileTransferMultiplexer);
+    }
+    m_fileTransferServer = new FileTransferServer(m_events, m_fileTransferMultiplexer, m_fileTransferSocketFactory);
+  }
+
+  // Start server if not already running
+  if (!m_fileTransferServer->isRunning()) {
+    if (!m_fileTransferServer->start()) {
+      LOG_ERR("[Server] failed to start file transfer server");
+      return;
+    }
+  }
+
+  // Parse file list and set session files
+  std::vector<FileTransferFileInfo> files;
+
+  // Helper to extract string field from JSON object
+  auto extractString = [](const std::string &json, size_t start, size_t end, const std::string &field) -> std::string {
+    std::string search = "\"" + field + "\":\"";
+    size_t pos = json.find(search, start);
+    if (pos == std::string::npos || pos >= end) return "";
+    pos += search.size();
+    size_t endPos = pos;
+    while (endPos < end && json[endPos] != '"') {
+      if (json[endPos] == '\\' && endPos + 1 < end) endPos += 2;
+      else endPos++;
+    }
+    // Unescape
+    std::string result;
+    for (size_t i = pos; i < endPos; ++i) {
+      if (json[i] == '\\' && i + 1 < endPos) {
+        ++i;
+        if (json[i] == 'n') result += '\n';
+        else if (json[i] == 'r') result += '\r';
+        else if (json[i] == 't') result += '\t';
+        else result += json[i];
+      } else {
+        result += json[i];
+      }
+    }
+    return result;
+  };
+
+  auto extractUint64 = [](const std::string &json, size_t start, size_t end, const std::string &field) -> uint64_t {
+    std::string search = "\"" + field + "\":";
+    size_t pos = json.find(search, start);
+    if (pos == std::string::npos || pos >= end) return 0;
+    pos += search.size();
+    while (pos < end && (json[pos] == ' ' || json[pos] == '\t')) pos++;
+    uint64_t val = 0;
+    while (pos < end && json[pos] >= '0' && json[pos] <= '9') {
+      val = val * 10 + (json[pos] - '0');
+      pos++;
+    }
+    return val;
+  };
+
+  auto extractBool = [](const std::string &json, size_t start, size_t end, const std::string &field) -> bool {
+    std::string search = "\"" + field + "\":";
+    size_t pos = json.find(search, start);
+    if (pos == std::string::npos || pos >= end) return false;
+    pos += search.size();
+    while (pos < end && json[pos] == ' ') pos++;
+    return pos < end && json[pos] == 't';
+  };
+
+  // Parse each file entry (skip __source entries)
+  size_t entryStart = 0;
+  while ((entryStart = fileListData.find("{", entryStart)) != std::string::npos) {
+    size_t entryEnd = fileListData.find("}", entryStart);
+    if (entryEnd == std::string::npos) break;
+
+    // Skip __source metadata entry
+    if (fileListData.find("\"__source\"", entryStart) < entryEnd) {
+      entryStart = entryEnd + 1;
+      continue;
+    }
+
+    std::string path = extractString(fileListData, entryStart, entryEnd, "path");
+    std::string relativePath = extractString(fileListData, entryStart, entryEnd, "relativePath");
+    uint64_t size = extractUint64(fileListData, entryStart, entryEnd, "size");
+    bool isDir = extractBool(fileListData, entryStart, entryEnd, "isDir");
+
+    if (!path.empty()) {
+      FileTransferFileInfo info;
+      info.path = path;
+      info.relativePath = relativePath.empty() ? path : relativePath;
+      info.size = size;
+      info.isDir = isDir;
+      files.push_back(info);
+      LOG_DEBUG("[Server] file for transfer: path=%s, size=%llu, isDir=%d", path.c_str(), size, isDir);
+    }
+
+    entryStart = entryEnd + 1;
+  }
+
+  m_fileTransferServer->setSessionFiles(m_currentFileSessionId, files);
+
+  LOG_INFO(
+      "[Server] host file transfer server ready: port=%u, address=%s, files=%zu",
+      m_fileTransferServer->getPort(), m_fileTransferServer->getLocalAddress().c_str(), files.size()
+  );
+
+  // Also start ClipboardTransferThread for threaded file transfer
+  if (!m_clipboardTransferThread) {
+    m_clipboardTransferThread = new ClipboardTransferThread();
+  }
+
+  if (!m_clipboardTransferThread->isRunning()) {
+    if (!m_clipboardTransferThread->start()) {
+      LOG_ERR("[Server] failed to start clipboard transfer thread");
+    }
+  }
+
+  // Set files on the threaded server as well
+  if (m_clipboardTransferThread->isRunning()) {
+    std::vector<ClipboardTransferFileInfo> ctFiles;
+    ctFiles.reserve(files.size());
+    for (const auto &f : files) {
+      ClipboardTransferFileInfo ctInfo;
+      ctInfo.path = f.path;
+      ctInfo.relativePath = f.relativePath;
+      ctInfo.size = f.size;
+      ctInfo.isDir = f.isDir;
+      ctFiles.push_back(std::move(ctInfo));
+    }
+    m_clipboardTransferThread->setAvailableFiles(m_currentFileSessionId, ctFiles);
+
+    LOG_INFO(
+        "[Server] clipboard transfer thread ready: port=%u, address=%s",
+        m_clipboardTransferThread->getServerPort(), m_clipboardTransferThread->getLocalAddress().c_str()
+    );
+  }
+}
+
+uint32_t Server::requestFileP2P(
+    const std::string &sourceAddr, uint16_t sourcePort, uint64_t sessionId, const std::string &filePath,
+    const std::string &relativePath, bool isDir
+)
+{
+  uint32_t requestId = FileTransfer::generateRequestId();
+
+  LOG_INFO(
+      "[Server] P2P file request: addr=%s:%u, sessionId=%llu, path=%s, requestId=%u", sourceAddr.c_str(), sourcePort,
+      sessionId, filePath.c_str(), requestId
+  );
+
+  // Create connection if needed
+  if (!m_fileTransferConn) {
+    // Use existing multiplexer or create new one
+    if (!m_fileTransferMultiplexer) {
+      m_fileTransferMultiplexer = new SocketMultiplexer();
+      LOG_DEBUG("[Server] created dedicated SocketMultiplexer for P2P file transfer");
+    }
+    m_fileTransferConn = new FileTransferConnection(m_events, m_fileTransferMultiplexer);
+  }
+
+  // Setup transfer tracking
+  FileTransferRequest request;
+  request.requestId = requestId;
+  request.relativePath = relativePath;
+  request.isDir = isDir;
+  m_p2pFileTransfers[requestId] = request;
+
+  // Set callback for received data
+  m_fileTransferConn->setDataCallback([this, requestId](FileChunkType type, const std::string &data) {
+    handleP2PFileChunk(requestId, type, data);
+  });
+
+  // Connect to source
+  if (!m_fileTransferConn->connectPointToPoint(sourceAddr, sourcePort, requestId, sessionId, filePath)) {
+    LOG_ERR("[Server] P2P connection failed to %s:%u", sourceAddr.c_str(), sourcePort);
+    m_p2pFileTransfers.erase(requestId);
+    return 0;
+  }
+
+  LOG_INFO("[Server] P2P connection established, requestId=%u", requestId);
+  return requestId;
+}
+
+void Server::handleP2PFileChunk(uint32_t requestId, FileChunkType type, const std::string &data)
+{
+  LOG_DEBUG1("[Server] P2P chunk: requestId=%u, type=%d, size=%zu", requestId, static_cast<int>(type), data.size());
+
+  auto it = m_p2pFileTransfers.find(requestId);
+  if (it == m_p2pFileTransfers.end()) {
+    LOG_WARN("[Server] P2P chunk for unknown request %u", requestId);
+    return;
+  }
+
+  switch (type) {
+    case FileChunkType::Start: {
+      std::string fileName, relativePath;
+      uint64_t fileSize = 0;
+      bool isDir = false;
+
+      if (FileTransfer::parseStartChunkEx(data, fileName, relativePath, fileSize, isDir)) {
+        it->second.fileName = fileName;
+        it->second.fileSize = fileSize;
+        it->second.relativePath = relativePath;
+        it->second.isDir = isDir;
+        if (!isDir) {
+          it->second.data.reserve(static_cast<size_t>(fileSize));
+        }
+        LOG_INFO("[Server] P2P start chunk: name=%s, size=%llu", fileName.c_str(), fileSize);
+      }
+      break;
+    }
+
+    case FileChunkType::Data: {
+      it->second.data.insert(it->second.data.end(), data.begin(), data.end());
+      it->second.bytesTransferred += data.size();
+      LOG_DEBUG1(
+          "[Server] P2P data chunk: %zu bytes, total=%llu/%llu", data.size(), it->second.bytesTransferred,
+          it->second.fileSize
+      );
+      break;
+    }
+
+    case FileChunkType::End: {
+      LOG_INFO("[Server] P2P end chunk, saving file");
+      std::string tempPath = FileTransfer::createTempFilePath(it->second.fileName);
+      std::ofstream outFile(tempPath, std::ios::binary);
+      if (outFile.is_open()) {
+        outFile.write(reinterpret_cast<const char *>(it->second.data.data()), it->second.data.size());
+        outFile.close();
+        it->second.filePath = tempPath;
+        LOG_INFO("[Server] P2P file saved: %s", tempPath.c_str());
+      } else {
+        LOG_ERR("[Server] P2P failed to open file for writing: %s", tempPath.c_str());
+      }
+      m_p2pFileTransfers.erase(it);
+      break;
+    }
+
+    case FileChunkType::Error: {
+      LOG_ERR("[Server] P2P transfer error: %s", data.c_str());
+      it->second.hasError = true;
+      it->second.errorMessage = data;
+      m_p2pFileTransfers.erase(it);
+      break;
+    }
+  }
+}
+
+// Note: All info struct alloc() methods (SwitchToScreenInfo, SwitchInDirectionInfo,
+// KeyboardBroadcastInfo, LockCursorToScreenInfo) have been removed as part of RAII
+// refactoring (commit 3763e8127). These structs now use constructors and std::string
+// for proper memory management instead of manual malloc/free.
+
+void Server::setListener(ClientListener *p)
+{
+  m_clientListener = p;
+
+  // Create file transfer listener when ClientListener is set
+  // The actual socket factory and start() will be called from ServerApp
+  if (!m_fileTransferListener) {
+    LOG_INFO("[FileTransfer] Creating FileTransferListener (will be started by ServerApp)");
+    // We need socket factory which is owned by ServerApp
+    // For now, create listener without factory - will be set via start()
+  }
 }

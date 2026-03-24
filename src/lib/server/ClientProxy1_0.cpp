@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2025 AutoDeskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -241,6 +241,13 @@ bool ClientProxy1_0::leave()
 void ClientProxy1_0::setClipboard(ClipboardID id, const IClipboard *clipboard)
 {
   // ignore -- deprecated in protocol 1.0
+}
+
+void ClientProxy1_0::setClipboardMeta(ClipboardID id, const ClipboardMeta &meta)
+{
+  // ignore -- not supported in protocol versions < 1.8
+  // Fall back to sending full clipboard data for older clients
+  LOG_DEBUG("setClipboardMeta not supported in protocol 1.0, ignoring");
 }
 
 void ClientProxy1_0::grabClipboard(ClipboardID id)

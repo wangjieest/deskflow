@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2025 AutoDeskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -16,6 +16,8 @@
 #include "deskflow/KeyTypes.h"
 #include "deskflow/MouseTypes.h"
 #include "server/Config.h"
+#include "deskflow/ClipboardMeta.h"
+#include "deskflow/FileTransfer.h"
 
 #include <climits>
 #include <map>
@@ -32,6 +34,11 @@ class Screen;
 class IEventQueue;
 class Thread;
 class ClientListener;
+class FileTransferServer;
+class FileTransferConnection;
+class ClipboardTransferThread;
+class SocketMultiplexer;
+class ISocketFactory;
 
 //! Deskflow server
 /*!
@@ -115,7 +122,7 @@ public:
       kToggle
     };
 
-    explicit KeyboardBroadcastInfo(State state = kToggle) : m_state(state)
+    explicit KeyboardBroadcastInfo(State state = kToggle) : m_state(state), m_screens()
     {
       // do nothing
     }
@@ -170,10 +177,19 @@ public:
   */
   void disconnect();
 
-  //! Store ClientListener pointer
-  void setListener(ClientListener *p)
+  //! Store ClientListener pointer and initialize file transfer listener
+  void setListener(ClientListener *p);
+
+  //! Get FileTransferListener
+  class FileTransferListener *getFileTransferListener()
   {
-    m_clientListener = p;
+    return m_fileTransferListener;
+  }
+
+  //! Set FileTransferListener (called by ServerApp)
+  void setFileTransferListener(class FileTransferListener *listener)
+  {
+    m_fileTransferListener = listener;
   }
 
   //@}
@@ -198,6 +214,42 @@ public:
   */
   void getClients(std::vector<std::string> &list) const;
   void sendConnectedClientsIpc() const;
+
+  //! Get clipboard metadata for deferred transfer
+  /*!
+  Returns the metadata for the specified clipboard, including sessionId.
+  Used by clients to validate their requests.
+  */
+  const ClipboardMeta &getClipboardMeta(ClipboardID id) const;
+
+  //! Validate a file request against current clipboard session
+  /*!
+  Returns the status of the request. Checks sessionId match and path whitelist.
+  */
+  ClipboardDataStatus validateFileRequest(ClipboardID id, uint64_t sessionId, const std::string &filePath) const;
+
+  //! Get current session ID for a clipboard
+  uint64_t getClipboardSessionId(ClipboardID id) const;
+
+  //! Send clipboard data to a specific client (for deferred transfer)
+  /*!
+  Sends the full clipboard data to the specified client.
+  Used when client requests deferred clipboard data.
+  */
+  void sendClipboardToClient(BaseClientProxy *client, ClipboardID id);
+
+  //! Check if client already has full clipboard data for current session
+  /*!
+  Returns true if the client has already received the full data for
+  the current clipboard session. Used to avoid redundant transfers.
+  */
+  bool clientHasClipboardData(BaseClientProxy *client, ClipboardID id) const;
+
+  //! Mark client as having received full clipboard data
+  /*!
+  Called after successfully sending full clipboard data to a client.
+  */
+  void markClientHasClipboardData(BaseClientProxy *client, ClipboardID id);
 
   //@}
 
@@ -364,12 +416,46 @@ private:
   public:
     ClipboardInfo() = default;
 
+    //! Clear session-specific data when clipboard changes
+    void clearSession()
+    {
+      m_sessionId = 0;
+      m_meta = ClipboardMeta();
+      m_allowedFilePaths.clear();
+      m_clientsWithFullData.clear();
+    }
+
   public:
     Clipboard m_clipboard;
     std::string m_clipboardData;
     std::string m_clipboardOwner;
     uint32_t m_clipboardSeqNum = 0;
+
+    //! Session ID for deferred transfer validation
+    /*! Incremented each time clipboard content changes. Clients must include
+        this in data requests; server rejects mismatched IDs. */
+    uint64_t m_sessionId = 0;
+
+    //! Metadata about current clipboard content
+    ClipboardMeta m_meta;
+
+    //! Whitelist of allowed file paths for this session
+    /*! Only populated for FileList content. Server rejects requests for paths
+        not in this list. */
+    std::set<std::string> m_allowedFilePaths;
+
+    //! Clients that have already received full clipboard data for this session
+    /*! When a client enters, we check if they already have the data.
+        Cleared when session changes. */
+    std::set<BaseClientProxy *> m_clientsWithFullData;
   };
+
+  // Update clipboard metadata from clipboard content
+  void updateClipboardMeta(ClipboardInfo &clipboard);
+
+  // Parse file list data and populate whitelist
+  void parseFileListToWhitelist(ClipboardInfo &clipboard, const std::string &fileListData);
+
   // Order suggested by clang
 
   // the Primary Screen Client
@@ -400,6 +486,8 @@ private:
   IEventQueue *m_events = nullptr;
   size_t m_maximumClipboardSize = INT_MAX;
   ClientListener *m_clientListener = nullptr;
+  class FileTransferListener *m_fileTransferListener = nullptr;
+
   Stopwatch m_switchTwoTapTimer;
 
   // Name of screen broadcasting the keyboard events
@@ -472,4 +560,36 @@ private:
   bool m_defaultLockToScreenState = false;
   bool m_disableLockToScreen = false;
   bool m_enableClipboard = true;
+
+  //! Global session ID counter for clipboard deferred transfer
+  /*! Incremented each time any clipboard content changes. Used to generate
+      unique session IDs for validation. */
+  uint64_t m_nextSessionId = 1;
+
+  //! Point-to-point file transfer server (for serving files when this host is the copy source)
+  FileTransferServer *m_fileTransferServer = nullptr;
+  SocketMultiplexer *m_fileTransferMultiplexer = nullptr;
+  ISocketFactory *m_fileTransferSocketFactory = nullptr;
+  uint64_t m_currentFileSessionId = 0;
+
+  //! Start file transfer server for point-to-point transfer
+  void startHostFileTransferServer(const std::string &fileListData);
+
+  //! Point-to-point file transfer connection (for fetching files from remote source)
+  FileTransferConnection *m_fileTransferConn = nullptr;
+
+  //! P2P file transfers tracking
+  std::map<uint32_t, FileTransferRequest> m_p2pFileTransfers;
+
+  //! Handle file chunk from P2P connection
+  void handleP2PFileChunk(uint32_t requestId, FileChunkType type, const std::string &data);
+
+  //! Request file via P2P connection
+  uint32_t requestFileP2P(
+      const std::string &sourceAddr, uint16_t sourcePort, uint64_t sessionId, const std::string &filePath,
+      const std::string &relativePath, bool isDir
+  );
+
+  //! Clipboard transfer thread (for file transfer in separate thread)
+  ClipboardTransferThread *m_clipboardTransferThread = nullptr;
 };

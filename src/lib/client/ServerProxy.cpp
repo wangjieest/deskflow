@@ -1,19 +1,22 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2025 AutoDeskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
  */
 
 #include "client/ServerProxy.h"
+#include "client/FileTransferConnection.h"
 
 #include "base/IEventQueue.h"
 #include "base/Log.h"
 #include "client/Client.h"
+#include "net/SocketMultiplexer.h"
 #include "deskflow/Clipboard.h"
 #include "deskflow/ClipboardChunk.h"
 #include "deskflow/DeskflowException.h"
+#include "deskflow/FileTransfer.h"
 #include "deskflow/OptionTypes.h"
 #include "deskflow/ProtocolTypes.h"
 #include "deskflow/ProtocolUtil.h"
@@ -21,16 +24,29 @@
 #include "deskflow/ipc/CoreIpc.h"
 #include "io/IStream.h"
 
+#ifdef _WIN32
+#include "deskflow/ClipboardTransferThread.h"
+#include "platform/MSWindowsClipboardFileConverter.h"
+#endif
+
+#if WINAPI_CARBON
+#include "deskflow/ClipboardTransferThread.h"
+#include "platform/OSXClipboardFileConverter.h"
+#endif
+
 #include <cstring>
+#include <fstream>
+#include <sstream>
 
 //
 // ServerProxy
 //
 
-ServerProxy::ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue *events)
+ServerProxy::ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue *events, SocketMultiplexer *socketMultiplexer)
     : m_client(client),
       m_stream(stream),
-      m_events(events)
+      m_events(events),
+      m_socketMultiplexer(socketMultiplexer)
 {
   assert(m_client != nullptr);
   assert(m_stream != nullptr);
@@ -55,6 +71,13 @@ ServerProxy::~ServerProxy()
 {
   setKeepAliveRate(-1.0);
   m_events->removeHandler(EventTypes::StreamInputReady, m_stream->getEventTarget());
+
+  // Clean up file transfer connection
+  if (m_fileTransferConn) {
+    m_fileTransferConn->close();
+    delete m_fileTransferConn;
+    m_fileTransferConn = nullptr;
+  }
 }
 
 void ServerProxy::resetKeepAliveAlarm()
@@ -308,6 +331,22 @@ ServerProxy::ConnectionResult ServerProxy::parseMessage(const uint8_t *code)
     secureInputNotification();
   }
 
+  else if (memcmp(code, kMsgDFileChunk, 4) == 0) {
+    fileChunkReceived();
+  }
+
+  else if (memcmp(code, kMsgDFileTransferPort, 4) == 0) {
+    handleFileTransferPort();
+  }
+
+  else if (memcmp(code, kMsgDClipboardMeta, 4) == 0) {
+    setClipboardMeta();
+  }
+
+  else if (memcmp(code, kMsgSFileRequest, 4) == 0) {
+    handleServerFileRequest();
+  }
+
   else if (memcmp(code, kMsgCClose, 4) == 0) {
     // server wants us to hangup
     LOG_DEBUG1("recv close");
@@ -498,6 +537,7 @@ void ServerProxy::enter()
   uint32_t seqNum;
   ProtocolUtil::readf(m_stream, kMsgCEnter + 4, &x, &y, &seqNum, &mask);
   LOG_DEBUG1("recv enter, %d,%d %d %04x", x, y, seqNum, mask);
+  LOG_INFO("[ServerProxy] entering screen at (%d,%d) seq=%d - mouse from server", x, y, seqNum);
 
   // discard old compressed mouse motion, if any
   m_compressMouse = false;
@@ -510,18 +550,23 @@ void ServerProxy::enter()
 
   // forward
   m_client->enter(x, y, seqNum, static_cast<KeyModifierMask>(mask), false);
+
+  LOG_DEBUG("[ServerProxy] enter complete, client screen active");
 }
 
 void ServerProxy::leave()
 {
   // parse
   LOG_DEBUG1("recv leave");
+  LOG_INFO("[ServerProxy] leaving screen - mouse moving back to server");
 
   // send last mouse motion
   flushCompressedMouse();
 
   // forward
   m_client->leave();
+
+  LOG_DEBUG("[ServerProxy] leave complete");
 }
 
 void ServerProxy::setClipboard()
@@ -536,8 +581,25 @@ void ServerProxy::setClipboard()
   if (r == TransferState::Started) {
     size_t size = ClipboardChunk::getExpectedSize();
     LOG_DEBUG("receiving clipboard %d size=%d", id, size);
+
+    // Mark as transferring if this was a deferred clipboard
+    if (id < kClipboardEnd && m_deferredClipboard[id].isActive()) {
+      m_deferredClipboard[id].isTransferring = true;
+    }
   } else if (r == TransferState::Finished) {
     LOG_DEBUG("received clipboard %d size=%d", id, dataCached.size());
+
+    // Check if this deferred clipboard should be auto-deleted after transfer
+    bool shouldClear = true;
+    if (id < kClipboardEnd && m_deferredClipboard[id].deleteOnComplete) {
+      LOG_DEBUG("clearing deferred clipboard %d after completed transfer", id);
+      shouldClear = true;
+    }
+
+    // Clear deferred state since we're receiving full data
+    if (shouldClear) {
+      clearDeferredClipboard(id);
+    }
 
     // forward
     Clipboard clipboard;
@@ -545,6 +607,215 @@ void ServerProxy::setClipboard()
     m_client->setClipboard(id, &clipboard);
 
     LOG_INFO("clipboard was updated");
+  }
+}
+
+void ServerProxy::setClipboardMeta()
+{
+  // Parse message: kMsgDClipboardMeta = "DCMT%1i%s"
+  // %1i = clipboard ID (1 byte)
+  // %s = JSON metadata string
+  ClipboardID id;
+  std::string metaJson;
+
+  if (!ProtocolUtil::readf(m_stream, kMsgDClipboardMeta + 4, &id, &metaJson)) {
+    LOG_ERR("failed to parse clipboard metadata message");
+    return;
+  }
+
+  // Validate clipboard ID
+  if (id >= kClipboardEnd) {
+    LOG_ERR("invalid clipboard ID in metadata: %d", id);
+    return;
+  }
+
+  // Parse metadata
+  ClipboardMeta meta = ClipboardMeta::deserialize(metaJson);
+
+  LOG_INFO(
+      "received clipboard %d metadata (size=%llu, deferred=%s, sessionId=%llu)", id, meta.totalSize,
+      meta.deferred ? "true" : "false", meta.sessionId
+  );
+
+  // New clipboard content arrived - cleanup old deferred clipboards
+  cleanupDeferredClipboards(id);
+
+  // Store new deferred metadata
+  m_deferredClipboard[id].meta = meta;
+  m_deferredClipboard[id].isTransferring = false;
+  m_deferredClipboard[id].deleteOnComplete = false;
+
+  if (meta.deferred) {
+    // For deferred mode, we'll request data when user pastes
+    // For now, notify client that clipboard is available but in deferred mode
+    LOG_DEBUG("clipboard %d is in deferred mode - will request data on paste", id);
+
+#ifdef _WIN32
+    // On Windows, set up ClipboardTransferThread for point-to-point transfer
+    // This moves WM_RENDERFORMAT handling to a dedicated thread, preventing main thread blocking
+    if (meta.contentType == static_cast<uint32_t>(IClipboard::Format::FileList) &&
+        !meta.sourceAddress.empty() && meta.sourcePort > 0) {
+      LOG_INFO(
+          "[ServerProxy] Windows: setting up point-to-point file transfer from %s:%u",
+          meta.sourceAddress.c_str(), meta.sourcePort
+      );
+
+      // Get ClipboardTransferThread from client
+      ClipboardTransferThread *transferThread = m_client->getClipboardTransferThread();
+      if (transferThread && transferThread->isRunning()) {
+        // Parse file list from metadata
+        std::vector<ClipboardTransferFileInfo> files;
+        auto parsedFiles = MSWindowsClipboardFileConverter::parseFileList(meta.metadata);
+        files.reserve(parsedFiles.size());
+        for (const auto &f : parsedFiles) {
+          ClipboardTransferFileInfo info;
+          info.path = f.path;
+          info.relativePath = f.relativePath.empty() ? f.name : f.relativePath;
+          info.size = f.size;
+          info.isDir = f.isDir;
+          files.push_back(std::move(info));
+        }
+
+        // Use setDelayedRenderingFiles to set up delayed rendering in the transfer thread
+        // This makes the ClipboardTransferThread's window the clipboard owner,
+        // so WM_RENDERFORMAT will be sent to that thread instead of the main thread
+        transferThread->setDelayedRenderingFiles(
+            files, meta.sourceAddress, meta.sourcePort, meta.sessionId
+        );
+
+        LOG_INFO(
+            "[ServerProxy] Windows: ClipboardTransferThread configured with %zu files from %s:%u (non-blocking)",
+            files.size(), meta.sourceAddress.c_str(), meta.sourcePort
+        );
+      } else {
+        LOG_WARN("[ServerProxy] ClipboardTransferThread not available, will use legacy (blocking) transfer");
+        // Fall back to legacy behavior - store pending files for MSWindowsScreen to handle
+        MSWindowsClipboardFileConverter::setPendingFiles(
+            MSWindowsClipboardFileConverter::parseFileList(meta.metadata)
+        );
+        MSWindowsClipboardFileConverter::setDelayedRenderingActive(true);
+      }
+    }
+#endif
+
+#if WINAPI_CARBON
+    // On macOS, set up ClipboardTransferThread for point-to-point transfer
+    if (meta.contentType == static_cast<uint32_t>(IClipboard::Format::FileList) &&
+        !meta.sourceAddress.empty() && meta.sourcePort > 0) {
+      LOG_INFO(
+          "[ServerProxy] setting up point-to-point file transfer from %s:%u",
+          meta.sourceAddress.c_str(), meta.sourcePort
+      );
+
+      // Get ClipboardTransferThread from client
+      ClipboardTransferThread *transferThread = m_client->getClipboardTransferThread();
+      if (transferThread && transferThread->isRunning()) {
+        // Parse file list from metadata
+        std::vector<ClipboardTransferFileInfo> files;
+        auto parsedFiles = OSXClipboardFileConverter::parseFileList(meta.metadata);
+        files.reserve(parsedFiles.size());
+        for (const auto &f : parsedFiles) {
+          ClipboardTransferFileInfo info;
+          info.path = f.path;
+          info.relativePath = f.relativePath.empty() ? f.name : f.relativePath;
+          info.size = f.size;
+          info.isDir = f.isDir;
+          files.push_back(std::move(info));
+        }
+
+        // Set pending files for paste
+        transferThread->setPendingFilesForPaste(
+            files, meta.sourceAddress, meta.sourcePort, meta.sessionId
+        );
+
+        // Also set the transfer thread in OSXClipboardFileConverter for static access
+        OSXClipboardFileConverter::setClipboardTransferThread(transferThread);
+
+        LOG_INFO(
+            "[ServerProxy] ClipboardTransferThread configured with %zu files from %s:%u",
+            files.size(), meta.sourceAddress.c_str(), meta.sourcePort
+        );
+      } else {
+        LOG_WARN("[ServerProxy] ClipboardTransferThread not available, will use legacy transfer");
+      }
+    }
+#endif
+  }
+}
+
+void ServerProxy::requestClipboardData(ClipboardID id)
+{
+  // Validate
+  if (id >= kClipboardEnd) {
+    LOG_ERR("invalid clipboard ID for data request: %d", id);
+    return;
+  }
+
+  DeferredClipboardState &state = m_deferredClipboard[id];
+  if (!state.isActive()) {
+    LOG_DEBUG("no deferred clipboard data to request for id=%d", id);
+    return;
+  }
+
+  // Build data request
+  ClipboardDataRequest request;
+  request.sessionId = state.meta.sessionId;
+  request.contentType = state.meta.contentType;
+
+  std::string requestJson = request.serialize();
+
+  LOG_INFO("requesting clipboard %d data (sessionId=%llu)", id, state.meta.sessionId);
+
+  // Mark as transferring
+  state.isTransferring = true;
+
+  // Send request to server
+  ProtocolUtil::writef(m_stream, kMsgQClipboardData, id, &requestJson);
+}
+
+void ServerProxy::clearDeferredClipboard(ClipboardID id)
+{
+  if (id >= kClipboardEnd) {
+    return;
+  }
+
+  if (m_deferredClipboard[id].isActive()) {
+    LOG_DEBUG("clearing deferred clipboard %d (sessionId=%llu)", id, m_deferredClipboard[id].meta.sessionId);
+  }
+
+  m_deferredClipboard[id].clear();
+}
+
+void ServerProxy::cleanupDeferredClipboards(ClipboardID newClipboardId)
+{
+  // When new clipboard content arrives, we need to:
+  // 1. Clear all non-transferring deferred clipboards (they're now stale)
+  // 2. Mark transferring ones for auto-delete when transfer completes
+
+  for (ClipboardID i = 0; i < kClipboardEnd; ++i) {
+    DeferredClipboardState &state = m_deferredClipboard[i];
+
+    if (!state.isActive()) {
+      continue;
+    }
+
+    // Skip the clipboard that's being updated (will be replaced with new content)
+    if (i == newClipboardId) {
+      continue;
+    }
+
+    if (state.isTransferring) {
+      // Transfer in progress - mark for auto-delete when complete
+      LOG_DEBUG(
+          "marking deferred clipboard %d for auto-delete (sessionId=%llu, transfer in progress)", i,
+          state.meta.sessionId
+      );
+      state.deleteOnComplete = true;
+    } else {
+      // Not transferring - can safely clear now
+      LOG_DEBUG("clearing stale deferred clipboard %d (sessionId=%llu)", i, state.meta.sessionId);
+      state.clear();
+    }
   }
 }
 
@@ -560,6 +831,9 @@ void ServerProxy::grabClipboard()
   if (id >= kClipboardEnd) {
     return;
   }
+
+  // New clipboard content is coming - cleanup old deferred state
+  cleanupDeferredClipboards(id);
 
   // forward
   m_client->grabClipboard(id);
@@ -848,5 +1122,644 @@ void ServerProxy::setActiveServerLanguage(const std::string_view &language)
     }
   } else {
     LOG_DEBUG1("active server layout is empty");
+  }
+}
+
+uint32_t ServerProxy::requestFile(
+    const std::string &filePath, const std::string &relativePath, bool isDir, uint32_t batchTransferId
+)
+{
+  uint32_t requestId = FileTransfer::generateRequestId();
+
+  // Use batch ID if provided, otherwise use this request's ID
+  uint32_t effectiveBatchId = (batchTransferId != 0) ? batchTransferId : requestId;
+
+  LOG_INFO(
+      "requesting file: id=%u, batchId=%u, path=%s, relativePath=%s, isDir=%d", requestId, effectiveBatchId,
+      filePath.c_str(), relativePath.c_str(), isDir
+  );
+
+  // Store request info for when we receive the response
+  FileTransferRequest request;
+  request.requestId = requestId;
+  request.batchTransferId = effectiveBatchId;
+  request.filePath = filePath;
+  request.relativePath = relativePath.empty() ? filePath : relativePath;
+  request.isDir = isDir;
+  request.bytesTransferred = 0;
+  request.isComplete = false;
+  request.hasError = false;
+  m_fileTransfers[requestId] = std::move(request);
+
+  // Check if we have point-to-point source info in the clipboard metadata
+  // We check clipboard 0 (primary) first, since file transfers are typically from there
+  const DeferredClipboardState &clipState = m_deferredClipboard[kClipboardClipboard];
+  if (!clipState.meta.sourceAddress.empty() && clipState.meta.sourcePort > 0) {
+    // Point-to-point transfer: connect directly to source machine
+    LOG_INFO(
+        "[P2P] Using point-to-point transfer: source=%s:%u, sessionId=%llu", clipState.meta.sourceAddress.c_str(),
+        clipState.meta.sourcePort, clipState.meta.sessionId
+    );
+
+    // Create or reuse file transfer connection
+    if (!m_fileTransferConn) {
+      SocketMultiplexer *multiplexer = new SocketMultiplexer();
+      m_fileTransferConn = new FileTransferConnection(m_events, multiplexer);
+    }
+
+    // Set up callback for receiving data
+    m_fileTransferConn->setDataCallback([this, requestId](FileChunkType type, const std::string &data) {
+      handleFileChunkFromP2P(requestId, type, data);
+    });
+
+    // Connect point-to-point
+    if (m_fileTransferConn->connectPointToPoint(
+            clipState.meta.sourceAddress, clipState.meta.sourcePort, requestId, clipState.meta.sessionId, filePath
+        )) {
+      LOG_INFO("[P2P] Point-to-point connection established for requestId=%u", requestId);
+      return requestId;
+    } else {
+      LOG_WARN("[P2P] Point-to-point connection failed, falling back to server relay");
+      // Fall through to server relay method
+    }
+  }
+
+  // Fallback: send file request to server via main connection
+  // Build JSON request with extended file info
+  auto escapeJson = [](const std::string &s) -> std::string {
+    std::string result;
+    for (char c : s) {
+      switch (c) {
+      case '"':
+        result += "\\\"";
+        break;
+      case '\\':
+        result += "\\\\";
+        break;
+      case '\n':
+        result += "\\n";
+        break;
+      case '\r':
+        result += "\\r";
+        break;
+      case '\t':
+        result += "\\t";
+        break;
+      default:
+        result += c;
+      }
+    }
+    return result;
+  };
+
+  std::ostringstream requestJson;
+  requestJson << "{";
+  requestJson << "\"path\":\"" << escapeJson(filePath) << "\",";
+  requestJson << "\"relativePath\":\"" << escapeJson(relativePath.empty() ? filePath : relativePath) << "\",";
+  requestJson << "\"isDir\":" << (isDir ? "true" : "false");
+  requestJson << "}";
+
+  std::string requestData = requestJson.str();
+
+  // Send file request to server with JSON payload
+  ProtocolUtil::writef(m_stream, kMsgQFileRequest, requestId, &requestData);
+
+  return requestId;
+}
+
+void ServerProxy::fileChunkReceived()
+{
+  // Parse file chunk message: kMsgDFileChunk = "DFCH%4i%1i%s"
+  // %4i = request ID (4 bytes)
+  // %1i = chunk type (1 byte)
+  // %s = data (string)
+
+  uint32_t requestId = 0;
+  uint8_t chunkType = 0;
+  std::string data;
+
+  if (!ProtocolUtil::readf(m_stream, kMsgDFileChunk + 4, &requestId, &chunkType, &data)) {
+    LOG_ERR("failed to parse file chunk message");
+    return;
+  }
+
+  FileChunkType type = static_cast<FileChunkType>(chunkType);
+
+  switch (type) {
+  case FileChunkType::Start: {
+    // Parse file metadata from JSON (try extended format first, fall back to basic)
+    std::string fileName;
+    std::string relativePath;
+    uint64_t fileSize = 0;
+    bool isDir = false;
+
+    if (!FileTransfer::parseStartChunkEx(data, fileName, relativePath, fileSize, isDir)) {
+      // Try basic format for backward compatibility
+      if (!FileTransfer::parseStartChunk(data, fileName, fileSize)) {
+        LOG_ERR("failed to parse file start chunk");
+        return;
+      }
+      relativePath = fileName; // Use fileName as relativePath if not provided
+    }
+
+    LOG_INFO(
+        "file transfer started: id=%u, name=%s, relativePath=%s, size=%llu, isDir=%d", requestId, fileName.c_str(),
+        relativePath.c_str(), fileSize, isDir
+    );
+
+    // Log for GUI monitoring
+    LOG_NOTE("FILE_TRANSFER_START: id=%u, name=%s, size=%llu", requestId, fileName.c_str(), fileSize);
+
+    // Check if we already have a pending request (created during requestFile)
+    auto it = m_fileTransfers.find(requestId);
+    if (it != m_fileTransfers.end()) {
+      // Update existing request with server-provided metadata
+      // Keep batchTransferId from client request
+      it->second.fileName = fileName;
+      it->second.fileSize = fileSize;
+      // Use server's relativePath if available, otherwise keep client's
+      if (!relativePath.empty()) {
+        it->second.relativePath = relativePath;
+      }
+      it->second.isDir = isDir;
+      if (!isDir) {
+        it->second.data.reserve(static_cast<size_t>(fileSize));
+      }
+    } else {
+      // Create new transfer request (unexpected but handle gracefully)
+      FileTransferRequest request;
+      request.requestId = requestId;
+      request.batchTransferId = requestId; // Use requestId as batchId for unsolicited transfers
+      request.fileName = fileName;
+      request.relativePath = relativePath;
+      request.fileSize = fileSize;
+      request.bytesTransferred = 0;
+      request.isComplete = false;
+      request.hasError = false;
+      request.isDir = isDir;
+      if (!isDir) {
+        request.data.reserve(static_cast<size_t>(fileSize));
+      }
+      m_fileTransfers[requestId] = std::move(request);
+    }
+    break;
+  }
+
+  case FileChunkType::Data: {
+    auto it = m_fileTransfers.find(requestId);
+    if (it == m_fileTransfers.end()) {
+      LOG_ERR("received data chunk for unknown request: %u", requestId);
+      return;
+    }
+
+    // Append data
+    it->second.data.insert(it->second.data.end(), data.begin(), data.end());
+    it->second.bytesTransferred += data.size();
+
+    LOG_DEBUG1(
+        "file data chunk: id=%u, chunk=%zu, total=%llu/%llu", requestId, data.size(), it->second.bytesTransferred,
+        it->second.fileSize
+    );
+
+    // Log progress at 10% intervals for GUI monitoring
+    if (it->second.fileSize > 0) {
+      int currentPercent = static_cast<int>((it->second.bytesTransferred * 100) / it->second.fileSize);
+      int prevPercent =
+          static_cast<int>(((it->second.bytesTransferred - data.size()) * 100) / it->second.fileSize);
+
+      // Log every 10%
+      if ((currentPercent / 10) > (prevPercent / 10)) {
+        LOG_NOTE(
+            "FILE_TRANSFER_PROGRESS: id=%u, percent=%d, bytes=%llu, total=%llu", requestId, currentPercent,
+            it->second.bytesTransferred, it->second.fileSize
+        );
+      }
+    }
+    break;
+  }
+
+  case FileChunkType::End: {
+    auto it = m_fileTransfers.find(requestId);
+    if (it == m_fileTransfers.end()) {
+      LOG_ERR("received end chunk for unknown request: %u", requestId);
+      return;
+    }
+
+    it->second.isComplete = true;
+
+    // Use relativePath to preserve directory structure if available
+    std::string tempPath;
+    if (!it->second.relativePath.empty() && it->second.relativePath != it->second.fileName) {
+      // Use batch transfer ID as session identifier for directory structure
+      // This ensures all files from the same batch go into the same directory
+      uint32_t transferId = (it->second.batchTransferId != 0) ? it->second.batchTransferId : requestId;
+      tempPath = FileTransfer::createTempFilePathWithRelative(it->second.relativePath, transferId);
+    } else {
+      tempPath = FileTransfer::createTempFilePath(it->second.fileName);
+    }
+
+    // Handle directory entries
+    if (it->second.isDir) {
+      // Create directory
+      if (FileTransfer::createDirectoryPath(tempPath)) {
+        it->second.filePath = tempPath;
+        LOG_INFO("directory created: id=%u, path=%s", requestId, tempPath.c_str());
+
+        // Store completed directory path
+        m_completedFilePaths.push_back(tempPath);
+
+        LOG_NOTE(
+            "FILE_TRANSFER_COMPLETE: id=%u, file=%s, path=%s", requestId, it->second.fileName.c_str(), tempPath.c_str()
+        );
+
+        // Update macOS clipboard with completed file
+        updateClipboardWithCompletedFiles();
+      } else {
+        LOG_ERR("failed to create directory: %s", tempPath.c_str());
+        it->second.hasError = true;
+        it->second.errorMessage = "Failed to create directory";
+
+        LOG_NOTE("FILE_TRANSFER_ERROR: id=%u, error=Failed to create directory", requestId);
+      }
+    } else {
+      // Save file
+      std::ofstream outFile(tempPath, std::ios::binary);
+      if (outFile.is_open()) {
+        outFile.write(reinterpret_cast<const char *>(it->second.data.data()), it->second.data.size());
+        outFile.close();
+
+        it->second.filePath = tempPath;
+        LOG_INFO("file transfer complete: id=%u, saved to %s", requestId, tempPath.c_str());
+
+        // Store completed file path for later retrieval
+        m_completedFilePaths.push_back(tempPath);
+
+        // Log progress for GUI monitoring
+        LOG_NOTE(
+            "FILE_TRANSFER_COMPLETE: id=%u, file=%s, path=%s", requestId, it->second.fileName.c_str(), tempPath.c_str()
+        );
+
+        // Update macOS clipboard with completed file
+        updateClipboardWithCompletedFiles();
+      } else {
+        LOG_ERR("failed to save file: %s", tempPath.c_str());
+        it->second.hasError = true;
+        it->second.errorMessage = "Failed to save file";
+
+        LOG_NOTE("FILE_TRANSFER_ERROR: id=%u, error=Failed to save file", requestId);
+      }
+    }
+
+    // Clean up transfer state (keep for a short time in case of retry)
+    // For now, we remove it immediately
+    m_fileTransfers.erase(it);
+    break;
+  }
+
+  case FileChunkType::Error: {
+    auto it = m_fileTransfers.find(requestId);
+    if (it != m_fileTransfers.end()) {
+      it->second.hasError = true;
+      it->second.errorMessage = data;
+      m_fileTransfers.erase(it);
+    }
+    LOG_ERR("file transfer error: id=%u, message=%s", requestId, data.c_str());
+    break;
+  }
+  }
+}
+
+#ifdef __APPLE__
+#include "platform/OSXClipboardFileConverter.h"
+#include "platform/OSXPasteboardPeeker.h"
+#endif
+
+void ServerProxy::updateClipboardWithCompletedFiles()
+{
+  if (m_completedFilePaths.empty()) {
+    return;
+  }
+
+#ifdef __APPLE__
+  // Convert std::vector<std::string> to const char**
+  std::vector<const char*> cPaths;
+  cPaths.reserve(m_completedFilePaths.size());
+  for (const auto& path : m_completedFilePaths) {
+    cPaths.push_back(path.c_str());
+  }
+
+  LOG_INFO("macOS: storing %zu completed file path(s) for clipboard", m_completedFilePaths.size());
+  OSXClipboardFileConverter::setCompletedFilePaths(m_completedFilePaths);
+
+  // Signal that transfer is complete (wakes up promise keeper callback if waiting)
+  OSXClipboardFileConverter::signalTransferComplete();
+  LOG_INFO("macOS: signaled file transfer complete");
+
+  // Also update the pasteboard directly with file URLs
+  updatePasteboardWithFiles(cPaths.data(), static_cast<int>(cPaths.size()));
+#elif defined(_WIN32)
+  // Update Windows clipboard file converter with completed paths
+  LOG_INFO("Windows: storing %zu completed file path(s) for clipboard", m_completedFilePaths.size());
+  MSWindowsClipboardFileConverter::setCompletedFilePaths(m_completedFilePaths);
+
+  // Signal that transfer is complete (wakes up WM_RENDERFORMAT handler if waiting)
+  MSWindowsClipboardFileConverter::signalTransferComplete();
+  LOG_INFO("Windows: signaled file transfer complete");
+#endif
+}
+
+void ServerProxy::handleFileTransferPort()
+{
+  uint32_t requestId;
+  uint16_t transferPort;
+
+  if (!ProtocolUtil::readf(m_stream, kMsgDFileTransferPort + 4, &requestId, &transferPort)) {
+    LOG_ERR("[FileTransfer] Failed to parse file transfer port message");
+    return;
+  }
+
+  LOG_INFO("[FileTransfer] Received transfer port %u for requestId %u", transferPort, requestId);
+
+  // Find the file transfer request
+  auto it = m_fileTransfers.find(requestId);
+  if (it == m_fileTransfers.end()) {
+    LOG_ERR("[FileTransfer] Unknown requestId %u in port notification", requestId);
+    return;
+  }
+
+  // Create file transfer connection if needed
+  if (!m_fileTransferConn) {
+    // Create a SocketMultiplexer for file transfer if not provided
+    // Each file transfer connection can have its own multiplexer
+    SocketMultiplexer *multiplexer = m_socketMultiplexer;
+    if (!multiplexer) {
+      multiplexer = new SocketMultiplexer();
+      LOG_INFO("[FileTransfer] Created dedicated SocketMultiplexer for file transfers");
+    }
+
+    LOG_INFO("[FileTransfer] Creating file transfer connection");
+    m_fileTransferConn = new FileTransferConnection(m_events, multiplexer);
+  }
+
+  // Get server address from client
+  NetworkAddress serverAddr(m_client->getServerAddress());
+
+  // Connect to file transfer port
+  if (m_fileTransferConn->connect(serverAddr, requestId)) {
+    LOG_INFO("[FileTransfer] ✅ Connected to file transfer channel, requestId=%u", requestId);
+
+    // Set callback to handle received file chunks
+    m_fileTransferConn->setDataCallback([this, requestId](FileChunkType type, const std::string &data) {
+      LOG_DEBUG1("[FileTransfer] Received chunk via dedicated channel: type=%d, size=%zu", static_cast<int>(type), data.size());
+
+      // Simulate receiving via main stream for existing logic compatibility
+      // We manually update the file transfer state
+      auto it = m_fileTransfers.find(requestId);
+      if (it == m_fileTransfers.end()) {
+        LOG_WARN("[FileTransfer] Received chunk for unknown request %u", requestId);
+        return;
+      }
+
+      // Process chunk based on type (reusing logic from fileChunkReceived)
+      switch (type) {
+        case FileChunkType::Start: {
+          // Parse metadata
+          std::string fileName, relativePath;
+          uint64_t fileSize = 0;
+          bool isDir = false;
+
+          if (FileTransfer::parseStartChunkEx(data, fileName, relativePath, fileSize, isDir)) {
+            it->second.fileName = fileName;
+            it->second.fileSize = fileSize;
+            it->second.relativePath = relativePath;
+            it->second.isDir = isDir;
+            if (!isDir) {
+              it->second.data.reserve(static_cast<size_t>(fileSize));
+            }
+            LOG_INFO("[FileTransfer] Start chunk received: name=%s, size=%llu", fileName.c_str(), fileSize);
+          }
+          break;
+        }
+
+        case FileChunkType::Data: {
+          it->second.data.insert(it->second.data.end(), data.begin(), data.end());
+          it->second.bytesTransferred += data.size();
+          LOG_DEBUG1("[FileTransfer] Data chunk: %zu bytes, total=%llu/%llu",
+                     data.size(), it->second.bytesTransferred, it->second.fileSize);
+          break;
+        }
+
+        case FileChunkType::End: {
+          LOG_INFO("[FileTransfer] End chunk received, saving file");
+          // Save file (reuse logic from fileChunkReceived)
+          std::string tempPath = FileTransfer::createTempFilePath(it->second.fileName);
+          std::ofstream outFile(tempPath, std::ios::binary);
+          if (outFile.is_open()) {
+            outFile.write(reinterpret_cast<const char*>(it->second.data.data()), it->second.data.size());
+            outFile.close();
+            it->second.filePath = tempPath;
+            m_completedFilePaths.push_back(tempPath);
+            LOG_INFO("[FileTransfer] ✅ File saved: %s", tempPath.c_str());
+
+            // Update clipboard on macOS
+            updateClipboardWithCompletedFiles();
+          }
+          m_fileTransfers.erase(it);
+          break;
+        }
+
+        case FileChunkType::Error: {
+          LOG_ERR("[FileTransfer] Transfer error: %s", data.c_str());
+          it->second.hasError = true;
+          it->second.errorMessage = data;
+          m_fileTransfers.erase(it);
+          break;
+        }
+      }
+    });
+  } else {
+    LOG_ERR("[FileTransfer] Failed to connect to file transfer channel");
+  }
+}
+
+void ServerProxy::handleServerFileRequest()
+{
+  // Parse file request message from server: kMsgSFileRequest = "SFIL%4i%s"
+  // Server is requesting a file from this client (Client → Host transfer)
+
+  uint32_t requestId = 0;
+  std::string requestData;
+
+  if (!ProtocolUtil::readf(m_stream, kMsgSFileRequest + 4, &requestId, &requestData)) {
+    LOG_ERR("[FileTransfer] failed to parse server file request message");
+    return;
+  }
+
+  LOG_INFO("[FileTransfer] received server file request: id=%u, data=%s", requestId, requestData.c_str());
+
+  // Parse JSON request data to extract file path
+  // Format: {"path":"...", "sessionId":123, "relativePath":"...", "isDir":false}
+  std::string filePath;
+  bool isDir = false;
+
+  // Simple JSON parsing for required fields
+  size_t pathPos = requestData.find("\"path\":\"");
+  if (pathPos != std::string::npos) {
+    size_t start = pathPos + 8;
+    size_t end = requestData.find("\"", start);
+    if (end != std::string::npos) {
+      filePath = requestData.substr(start, end - start);
+      // Unescape basic JSON escapes
+      size_t pos = 0;
+      while ((pos = filePath.find("\\\\", pos)) != std::string::npos) {
+        filePath.replace(pos, 2, "\\");
+        pos += 1;
+      }
+      pos = 0;
+      while ((pos = filePath.find("\\/", pos)) != std::string::npos) {
+        filePath.replace(pos, 2, "/");
+        pos += 1;
+      }
+    }
+  }
+
+  size_t isDirPos = requestData.find("\"isDir\":true");
+  if (isDirPos != std::string::npos) {
+    isDir = true;
+  }
+
+  if (filePath.empty()) {
+    LOG_ERR("[FileTransfer] invalid server file request: missing path");
+    sendFileChunkToServer(requestId, static_cast<uint8_t>(FileChunkType::Error), "invalid request: missing path");
+    return;
+  }
+
+  LOG_INFO("[FileTransfer] server requesting file: %s (isDir=%d)", filePath.c_str(), isDir);
+
+  // Check if file exists
+  std::ifstream file(filePath, std::ios::binary | std::ios::ate);
+  if (!file.is_open()) {
+    LOG_ERR("[FileTransfer] file not found: %s", filePath.c_str());
+    sendFileChunkToServer(requestId, static_cast<uint8_t>(FileChunkType::Error), "file not found");
+    return;
+  }
+
+  if (isDir) {
+    // For directories, just send success (directory creation is handled by metadata)
+    LOG_INFO("[FileTransfer] directory request, sending success");
+    std::string metadata = "{\"name\":\"" + filePath + "\",\"size\":0,\"isDir\":true}";
+    sendFileChunkToServer(requestId, static_cast<uint8_t>(FileChunkType::Start), metadata);
+    sendFileChunkToServer(requestId, static_cast<uint8_t>(FileChunkType::End), "");
+    return;
+  }
+
+  // Get file size
+  auto fileSize = file.tellg();
+  file.seekg(0, std::ios::beg);
+
+  LOG_INFO("[FileTransfer] reading file: %s (size=%lld)", filePath.c_str(), static_cast<long long>(fileSize));
+
+  // Extract filename from path
+  std::string fileName = filePath;
+  size_t lastSlash = filePath.find_last_of("/\\");
+  if (lastSlash != std::string::npos) {
+    fileName = filePath.substr(lastSlash + 1);
+  }
+
+  // Send start chunk with metadata
+  std::ostringstream metadata;
+  metadata << "{\"name\":\"" << fileName << "\",\"size\":" << fileSize << ",\"isDir\":false}";
+  sendFileChunkToServer(requestId, static_cast<uint8_t>(FileChunkType::Start), metadata.str());
+
+  // Send file data in chunks
+  const size_t chunkSize = 64 * 1024; // 64KB chunks
+  std::vector<char> buffer(chunkSize);
+
+  while (file) {
+    file.read(buffer.data(), chunkSize);
+    std::streamsize bytesRead = file.gcount();
+    if (bytesRead > 0) {
+      std::string chunk(buffer.data(), static_cast<size_t>(bytesRead));
+      sendFileChunkToServer(requestId, static_cast<uint8_t>(FileChunkType::Data), chunk);
+    }
+  }
+
+  file.close();
+
+  // Send end chunk
+  sendFileChunkToServer(requestId, static_cast<uint8_t>(FileChunkType::End), "");
+  LOG_INFO("[FileTransfer] file sent successfully: %s", filePath.c_str());
+}
+
+void ServerProxy::sendFileChunkToServer(uint32_t requestId, uint8_t chunkType, const std::string &data)
+{
+  LOG_DEBUG("[FileTransfer] sending chunk to server: id=%u, type=%u, size=%zu", requestId, chunkType, data.size());
+  ProtocolUtil::writef(m_stream, kMsgDFileChunk, requestId, chunkType, &data);
+}
+
+void ServerProxy::handleFileChunkFromP2P(uint32_t requestId, FileChunkType type, const std::string &data)
+{
+  LOG_DEBUG1("[FileTransfer] P2P chunk received: type=%d, size=%zu, requestId=%u", static_cast<int>(type), data.size(), requestId);
+
+  auto it = m_fileTransfers.find(requestId);
+  if (it == m_fileTransfers.end()) {
+    LOG_WARN("[FileTransfer] P2P chunk for unknown request %u", requestId);
+    return;
+  }
+
+  switch (type) {
+    case FileChunkType::Start: {
+      // Parse metadata
+      std::string fileName, relativePath;
+      uint64_t fileSize = 0;
+      bool isDir = false;
+
+      if (FileTransfer::parseStartChunkEx(data, fileName, relativePath, fileSize, isDir)) {
+        it->second.fileName = fileName;
+        it->second.fileSize = fileSize;
+        it->second.relativePath = relativePath;
+        it->second.isDir = isDir;
+        if (!isDir) {
+          it->second.data.reserve(static_cast<size_t>(fileSize));
+        }
+        LOG_INFO("[FileTransfer] P2P start chunk: name=%s, size=%llu", fileName.c_str(), fileSize);
+      }
+      break;
+    }
+
+    case FileChunkType::Data: {
+      it->second.data.insert(it->second.data.end(), data.begin(), data.end());
+      it->second.bytesTransferred += data.size();
+      LOG_DEBUG1("[FileTransfer] P2P data chunk: %zu bytes, total=%llu/%llu", data.size(), it->second.bytesTransferred, it->second.fileSize);
+      break;
+    }
+
+    case FileChunkType::End: {
+      LOG_INFO("[FileTransfer] P2P end chunk received, saving file");
+      std::string tempPath = FileTransfer::createTempFilePath(it->second.fileName);
+      std::ofstream outFile(tempPath, std::ios::binary);
+      if (outFile.is_open()) {
+        outFile.write(reinterpret_cast<const char *>(it->second.data.data()), it->second.data.size());
+        outFile.close();
+        it->second.filePath = tempPath;
+        m_completedFilePaths.push_back(tempPath);
+        LOG_INFO("[FileTransfer] P2P file saved: %s", tempPath.c_str());
+
+        // Update clipboard on macOS
+        updateClipboardWithCompletedFiles();
+      } else {
+        LOG_ERR("[FileTransfer] P2P failed to open file for writing: %s", tempPath.c_str());
+      }
+      m_fileTransfers.erase(it);
+      break;
+    }
+
+    case FileChunkType::Error: {
+      LOG_ERR("[FileTransfer] P2P transfer error: %s", data.c_str());
+      it->second.hasError = true;
+      it->second.errorMessage = data;
+      m_fileTransfers.erase(it);
+      break;
+    }
   }
 }

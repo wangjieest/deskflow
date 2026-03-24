@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2025 AutoDeskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -37,6 +37,7 @@ public:
   void enter(int32_t xAbs, int32_t yAbs, uint32_t seqNum, KeyModifierMask mask, bool forScreensaver) override;
   bool leave() override;
   void setClipboard(ClipboardID, const IClipboard *) override;
+  void setClipboardMeta(ClipboardID, const ClipboardMeta &) override;
   void grabClipboard(ClipboardID) override;
   void setClipboardDirty(ClipboardID, bool) override;
   void keyDown(KeyID, KeyModifierMask, KeyButton, const std::string &) override;
