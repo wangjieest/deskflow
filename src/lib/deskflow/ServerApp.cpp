@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 - 2026 AutoDeskflow Developers
+ * SPDX-FileCopyrightText: (C) 2025 - 2026 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -32,7 +32,7 @@
 // must be before screen header includes
 #include <QFileInfo>
 
-#if WINAPI_MSWINDOWS
+#if defined(Q_OS_WIN)
 #include "platform/MSWindowsScreen.h"
 #endif
 
@@ -58,7 +58,7 @@ using namespace deskflow::server;
 
 ServerApp::ServerApp(IEventQueue *events, const QString &processName) : App(events, processName)
 {
-  m_name = Settings::value(Settings::Core::ScreenName).toString().toStdString();
+  m_name = Settings::value(Settings::Core::ComputerName).toString().toStdString();
   // do nothing
 }
 
@@ -84,17 +84,10 @@ void ServerApp::reloadSignalHandler(Arch::ThreadSignal, void *)
   events->addEvent(Event(EventTypes::ServerAppReloadConfig, events->getSystemTarget()));
 }
 
-QString ServerApp::currentConfig() const
-{
-  bool useExt = Settings::value(Settings::Server::ExternalConfig).toBool();
-  return useExt ? Settings::value(Settings::Server::ExternalConfigFile).toString()
-                : Settings::defaultValue(Settings::Server::ExternalConfigFile).toString();
-}
-
 void ServerApp::reloadConfig()
 {
   LOG_DEBUG("reload configuration");
-  if (loadConfig(currentConfig())) {
+  if (loadConfig(Settings::serverConfigFile())) {
     if (m_server != nullptr) {
       m_server->setConfig(*m_config);
     }
@@ -104,7 +97,7 @@ void ServerApp::reloadConfig()
 
 void ServerApp::loadConfig()
 {
-  const auto path = currentConfig();
+  const auto path = Settings::serverConfigFile();
   if (path.isEmpty()) {
     LOG_CRIT("no configuration path provided");
     bye(s_exitConfig);
@@ -122,7 +115,7 @@ bool ServerApp::loadConfig(const QString &filename)
   try {
     // load configuration
     LOG_DEBUG("opening configuration \"%s\"", path.c_str());
-#ifdef SYSAPI_WIN32
+#if defined(Q_OS_WIN)
     std::ifstream configStream(filename.toStdWString());
 #else
     std::ifstream configStream(path);
@@ -381,23 +374,18 @@ bool ServerApp::startServer()
 
     // Create and start file transfer listener on port 24802
     try {
-      LOG_INFO("[FileTransfer] Creating socket factory for FileTransferListener");
       auto socketFactory = getSocketFactory();
-      LOG_INFO("[FileTransfer] Socket factory created, creating FileTransferListener");
       auto *fileListener = new FileTransferListener(getEvents(), nullptr, socketFactory.get());
-      LOG_INFO("[FileTransfer] FileTransferListener created, getting base address");
-
       NetworkAddress baseAddr = getAddress(m_config->getDeskflowAddress());
-      LOG_INFO("[FileTransfer] Base address obtained, calling start()");
       if (fileListener->start(baseAddr)) {
         m_server->setFileTransferListener(fileListener);
-        LOG_INFO("[FileTransfer] ✅ File transfer listener started on port 24802");
+        LOG_INFO("file transfer listener started on port 24802");
       } else {
-        LOG_WARN("[FileTransfer] Failed to start file transfer listener, will use main connection");
+        LOG_WARN("failed to start file transfer listener, will use main connection");
         delete fileListener;
       }
     } catch (BaseException &e) {
-      LOG_WARN("[FileTransfer] Exception starting file transfer listener: %s", e.what());
+      LOG_WARN("exception starting file transfer listener: %s", e.what());
     }
 
     m_listener = listener;
@@ -419,13 +407,13 @@ bool ServerApp::startServer()
 
 deskflow::Screen *ServerApp::createScreen()
 {
-#if WINAPI_MSWINDOWS
+#if defined(Q_OS_WIN)
   return new deskflow::Screen(
       new MSWindowsScreen(true, Settings::value(Settings::Core::UseHooks).toBool(), getEvents()), getEvents()
   );
-#endif
-
-#if defined(WINAPI_XWINDOWS) or defined(WINAPI_LIBEI)
+#elif defined(Q_OS_MAC)
+  return new deskflow::Screen(new OSXScreen(getEvents(), true), getEvents());
+#else
   if (deskflow::platform::isWayland()) {
 #if WINAPI_LIBEI
     LOG_INFO("using ei screen for wayland");
@@ -434,17 +422,14 @@ deskflow::Screen *ServerApp::createScreen()
     throw XNoEiSupport();
 #endif
   }
-#endif
-
 #if WINAPI_XWINDOWS
   LOG_INFO("using legacy x windows screen");
   return new deskflow::Screen(
-      new XWindowsScreen(qPrintable(Settings::value(Settings::Core::Display).toString()), true, 0, getEvents()),
+      new XWindowsScreen(qPrintable(Settings::value(Settings::Core::Display).toString()), true, getEvents()),
       getEvents()
   );
-#elif WINAPI_CARBON
-  return new deskflow::Screen(new OSXScreen(getEvents(), true), getEvents());
 #endif
+#endif // end os check
 }
 
 PrimaryClient *ServerApp::openPrimaryClient(const std::string &name, deskflow::Screen *screen)
@@ -576,7 +561,7 @@ int ServerApp::mainLoop()
   getEvents()->loop();
 
   // close down
-  LOG_DEBUG1("stopping server");
+  LOG_DEBUG("stopping server");
   getEvents()->removeHandler(EventTypes::ServerAppForceReconnect, getEvents()->getSystemTarget());
   getEvents()->removeHandler(EventTypes::ServerAppReloadConfig, getEvents()->getSystemTarget());
   cleanupServer();

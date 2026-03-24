@@ -230,6 +230,11 @@ enum class TransferState : uint8_t
  */
 extern const char *const kMsgHello;
 
+/// Protocol name for Synergy compatibility
+extern const char *const kSynergyProtocolName;
+/// Protocol name for Barrier compatibility
+extern const char *const kBarrierProtocolName;
+
 /**
  * @brief Format string for server hello message arguments
  *

@@ -136,6 +136,7 @@ public:
   Returns the address of the server the client is connected (or wants
   to connect) to.
   */
+  void setServerAddress(const NetworkAddress &address) { m_serverAddress = address; }
   NetworkAddress getServerAddress() const;
 
   //! Get ClipboardTransferThread for point-to-point file transfer

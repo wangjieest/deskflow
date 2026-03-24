@@ -178,11 +178,11 @@ if(WIN32)
   endif()
 endif()
 
-target_link_libraries(platform client ${libs})
+target_link_libraries(platform PUBLIC client ${libs})
 
 if(UNIX)
   target_link_libraries(
-    platform
+    platform PUBLIC
     io
     net
     app
@@ -191,7 +191,7 @@ if(UNIX)
 
   if(APPLE)
     find_library(COCOA_LIBRARY Cocoa)
-    target_link_libraries(platform ${COCOA_LIBRARY})
+    target_link_libraries(platform PUBLIC ${COCOA_LIBRARY})
   else()
     if(${LIBXKBCOMMON_VERSION} VERSION_GREATER_EQUAL "1.10")
       target_compile_definitions(platform PRIVATE HAVE_XKB_KEYMAP_MOD_GET_MASK=1)
@@ -199,7 +199,7 @@ if(UNIX)
     target_compile_definitions(platform PUBLIC WINAPI_LIBEI WINAPI_LIBPORTAL HAVE_LIBPORTAL_INPUTCAPTURE)
     target_include_directories(platform PUBLIC ${LIBEI_INCLUDE_DIRS} ${LIBPORTAL_INCLUDE_DIRS})
     target_link_libraries(
-      platform
+      platform PUBLIC
       Qt6::DBus
       ${LIBXKBCOMMON_LINK_LIBRARIES}
       ${GLIB2_LINK_LIBRARIES} ${LIBM_LIBRARIES}
