@@ -213,6 +213,22 @@ void ClientProxyUnknown::handleData()
       throw IncompatibleClientException(major, minor);
     }
 
+    // AutoDeskflow: extract capability suffix from client name
+    // Format: "originalName.adf7" → name="originalName", caps=7
+    uint32_t clientCaps = 0;
+    std::string adfSuffix(kAdfCapSuffix);
+    size_t adfPos = name.rfind(adfSuffix);
+    if (adfPos != std::string::npos && adfPos + adfSuffix.size() < name.size()) {
+      std::string capsStr = name.substr(adfPos + adfSuffix.size());
+      try {
+        clientCaps = static_cast<uint32_t>(std::stoul(capsStr, nullptr, 16));
+      } catch (...) {
+        clientCaps = 0;
+      }
+      name = name.substr(0, adfPos);
+      LOG_INFO("AutoDeskflow client detected: \"%s\" caps=0x%x", name.c_str(), clientCaps);
+    }
+
     // remove stream event handlers.  the proxy we're about to create
     // may install its own handlers and we don't want to accidentally
     // remove those later.
@@ -221,8 +237,13 @@ void ClientProxyUnknown::handleData()
     // create client proxy for highest version supported by the client
     initProxy(name, major, minor);
 
+    // set capabilities on the proxy
+    if (m_proxy && clientCaps > 0) {
+      m_proxy->setCapabilities(clientCaps);
+    }
+
     // the proxy is created and now proxy now owns the stream
-    LOG_DEBUG1("created proxy for client \"%s\" version %d.%d", name.c_str(), major, minor);
+    LOG_DEBUG1("created proxy for client \"%s\" version %d.%d caps=0x%x", name.c_str(), major, minor, clientCaps);
     m_stream = nullptr;
 
     // wait until the proxy signals that it's ready or has disconnected
