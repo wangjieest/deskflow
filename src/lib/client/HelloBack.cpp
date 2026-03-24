@@ -70,7 +70,17 @@ void HelloBack::handleHello(deskflow::IStream *stream, const std::string &client
   // dynamically build write format for hello back since `ProtocolUtil::writef`
   // doesn't support formatting fixed length strings yet.
   std::string helloBackMessage = protocolName + kMsgHelloBackArgs;
-  ProtocolUtil::writef(stream, helloBackMessage.c_str(), helloBackMajor, helloBackMinor, &clientName);
+
+  // AutoDeskflow: append capability suffix to client name
+  // Format: "originalName.adf7" where 7 = hex(kCapAll)
+  // Safe because ".adf7" uses only valid screen name characters.
+  std::string enrichedName = clientName + kAdfCapSuffix;
+  char capHex[16];
+  snprintf(capHex, sizeof(capHex), "%x", kCapAll);
+  enrichedName += capHex;
+  LOG_DEBUG("hello back with enriched name \"%s\"", enrichedName.c_str());
+
+  ProtocolUtil::writef(stream, helloBackMessage.c_str(), helloBackMajor, helloBackMinor, &enrichedName);
 }
 
 bool HelloBack::shouldDowngrade(int major, int minor) const

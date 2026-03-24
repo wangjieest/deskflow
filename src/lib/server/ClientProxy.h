@@ -37,6 +37,9 @@ public:
   */
   void close(const char *msg) const;
 
+  //! Set AutoDeskflow capabilities (called during handshake)
+  void setCapabilities(uint32_t caps) { m_capabilities = caps; }
+
   //@}
   //! @name accessors
   //@{
@@ -46,6 +49,9 @@ public:
   Returns the original stream passed to the c'tor.
   */
   deskflow::IStream *getStream() const override;
+
+  //! Get AutoDeskflow capability bits
+  uint32_t capabilities() const override { return m_capabilities; }
 
   //@}
 
@@ -78,4 +84,5 @@ public:
 
 private:
   deskflow::IStream *m_stream;
+  uint32_t m_capabilities = 0;
 };

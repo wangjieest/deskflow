@@ -52,6 +52,12 @@ public:
     return false;
   }
 
+  //! Get AutoDeskflow capability bits (0 = original deskflow client)
+  virtual uint32_t capabilities() const
+  {
+    return 0;
+  }
+
   //@}
 
   // IScreen

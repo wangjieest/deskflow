@@ -1167,6 +1167,23 @@ extern const char *const kMsgQInfo;
 /** @} */ // end of protocol_queries group
 
 /**
+ * @defgroup protocol_capabilities AutoDeskflow Capability Negotiation
+ * @brief Capability bits exchanged via HelloBack name suffix ".adf<hex>"
+ * @{
+ */
+
+/// Name suffix used to identify AutoDeskflow clients (e.g. "my-pc.adf7")
+static constexpr const char *kAdfCapSuffix = ".adf";
+
+/// Capability bits
+static constexpr uint32_t kCapDeferredClipboard = 0x01; //!< Deferred clipboard (DCMT/QCLD)
+static constexpr uint32_t kCapFileTransfer      = 0x02; //!< File transfer (QFIL/SFIL/DFCH)
+static constexpr uint32_t kCapP2PTransfer       = 0x04; //!< Point-to-point direct transfer
+static constexpr uint32_t kCapAll               = 0x07; //!< All capabilities
+
+/** @} */
+
+/**
  * @defgroup protocol_filetransfer AutoDeskflow File Transfer Messages
  * @brief Deferred clipboard and point-to-point file transfer
  * @{
