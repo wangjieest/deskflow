@@ -35,8 +35,10 @@ private Q_SLOTS:
   void removeAlias() const;
   void checkNewAliasName(const QString &text);
   void aliasSelected();
+  void applyPreset(int presetIndex);
 
 private:
+  int detectCurrentPreset() const;
   std::unique_ptr<Ui::ScreenSettingsDialog> ui;
   Screen *m_screen;
 };

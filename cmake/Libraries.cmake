@@ -69,11 +69,13 @@ macro(configure_unix_libs)
   endif()
 
   # pthread is used on both Linux and Mac
-  check_library_exists("pthread" pthread_create "" HAVE_PTHREAD)
-  if(HAVE_PTHREAD)
-    list(APPEND libs pthread)
-  else()
-    message(FATAL_ERROR "Missing library: pthread")
+  if(NOT APPLE)
+    check_library_exists("pthread" pthread_create "" HAVE_PTHREAD)
+    if(HAVE_PTHREAD)
+      list(APPEND libs pthread)
+    else()
+      message(FATAL_ERROR "Missing library: pthread")
+    endif()
   endif()
 
   if(APPLE)
