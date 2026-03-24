@@ -12,6 +12,7 @@
 
 #include <Carbon/Carbon.h>
 
+#include <atomic>
 #include <map>
 #include <vector>
 
@@ -82,6 +83,7 @@ public:
   bool fakeMediaKey(KeyID id) override;
   KeyModifierMask pollActiveModifiers() const override;
   int32_t pollActiveGroup() const override;
+  void updateCachedActiveGroup();
   void pollPressedKeys(KeyButtonSet &pressedKeys) const override;
 
   CGEventFlags getModifierStateAsOSXFlags() const;
@@ -150,7 +152,7 @@ private:
     KeyButtonOffset = 1
   };
 
-  using GroupMap = std::map<CFDataRef, int32_t>;
+  using GroupMap = std::map<std::string, int32_t>;
   using VirtualKeyMap = std::map<uint32_t, KeyID>;
 
   VirtualKeyMap m_virtualKeyMap;
@@ -162,4 +164,5 @@ private:
   bool m_altPressed;
   bool m_superPressed;
   bool m_capsPressed;
+  mutable std::atomic<int32_t> m_cachedActiveGroup{0};
 };

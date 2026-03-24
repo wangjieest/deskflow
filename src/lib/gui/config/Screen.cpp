@@ -16,6 +16,9 @@ using enum ScreenConfig::Fix;
 Screen::Screen(const QString &name)
 {
   setName(name);
+  // Default: no modifier remapping (identity mapping)
+  // User can select a preset in ScreenSettingsDialog if cross-platform mapping is needed.
+  // Note: Modifier mapping only applies to remote clients, not to the server's own screen.
 }
 
 void Screen::loadSettings(QSettingsProxy &settings)

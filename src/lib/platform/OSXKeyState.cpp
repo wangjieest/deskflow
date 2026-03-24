@@ -14,8 +14,33 @@
 #include <Carbon/Carbon.h>
 #include <IOKit/hidsystem/IOHIDLib.h>
 
+#include <cstring>
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
+namespace {
+
+//! Convert CFStringRef to std::string
+std::string cfStringToStdString(CFStringRef cfStr)
+{
+  if (cfStr == nullptr) {
+    return std::string();
+  }
+
+  CFIndex length = CFStringGetLength(cfStr);
+  CFIndex maxSize = CFStringGetMaximumSizeForEncoding(length, kCFStringEncodingUTF8) + 1;
+  std::string result(maxSize, '\0');
+
+  if (CFStringGetCString(cfStr, &result[0], maxSize, kCFStringEncodingUTF8)) {
+    result.resize(std::strlen(result.c_str()));
+    return result;
+  }
+
+  return std::string();
+}
+
+} // namespace
 
 // Note that some virtual keys codes appear more than once.  The
 // first instance of a virtual key code maps to the KeyID that we
@@ -427,17 +452,29 @@ KeyModifierMask OSXKeyState::pollActiveModifiers() const
 
 int32_t OSXKeyState::pollActiveGroup() const
 {
-  AutoTISInputSourceRef keyboardLayout(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
-  CFDataRef id = (CFDataRef)TISGetInputSourceProperty(keyboardLayout.get(), kTISPropertyInputSourceID);
+  // Return cached value to avoid calling macOS API from non-main thread
+  return m_cachedActiveGroup.load();
+}
 
-  GroupMap::const_iterator i = m_groupMap.find(id);
+void OSXKeyState::updateCachedActiveGroup()
+{
+  // This method must be called on the main thread!
+  // It calls TISCopyCurrentKeyboardLayoutInputSource which requires main thread
+  AutoTISInputSourceRef keyboardLayout(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
+  CFStringRef sourceId = (CFStringRef)TISGetInputSourceProperty(keyboardLayout.get(), kTISPropertyInputSourceID);
+
+  std::string idStr = cfStringToStdString(sourceId);
+  GroupMap::const_iterator i = m_groupMap.find(idStr);
   if (i != m_groupMap.end()) {
-    return i->second;
+    m_cachedActiveGroup.store(i->second);
+    return;
   }
 
-  LOG_WARN("can't get the active group, use the first group instead");
+  // This can happen if the keyboard layout changed after getKeyMap() was called.
+  // Use group 0 as a safe fallback - this is typically the primary keyboard layout.
+  LOG_DEBUG1("keyboard layout '%s' not in group map, using default group", idStr.c_str());
 
-  return 0;
+  m_cachedActiveGroup.store(0);
 }
 
 void OSXKeyState::pollPressedKeys(KeyButtonSet &pressedKeys) const
@@ -463,8 +500,9 @@ void OSXKeyState::getKeyMap(deskflow::KeyMap &keyMap)
     numGroups = CFArrayGetCount(m_groups.get());
     for (int32_t g = 0; g < numGroups; ++g) {
       TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(m_groups.get(), g);
-      CFDataRef id = (CFDataRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyInputSourceID);
-      m_groupMap[id] = g;
+      CFStringRef sourceId = (CFStringRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyInputSourceID);
+      std::string idStr = cfStringToStdString(sourceId);
+      m_groupMap[idStr] = g;
     }
   }
 

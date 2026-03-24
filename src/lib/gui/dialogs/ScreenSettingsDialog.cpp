@@ -49,6 +49,12 @@ ScreenSettingsDialog::ScreenSettingsDialog(QWidget *parent, Screen *screen, cons
   ui->comboMeta->setCurrentIndex(m_screen->modifier(static_cast<int>(Meta)));
   ui->comboSuper->setCurrentIndex(m_screen->modifier(static_cast<int>(Super)));
 
+  // Detect which preset matches current settings and select it
+  ui->comboPreset->setCurrentIndex(detectCurrentPreset());
+
+  connect(ui->comboPreset, QOverload<int>::of(&QComboBox::currentIndexChanged),
+          this, &ScreenSettingsDialog::applyPreset);
+
   ui->chkDeadTopLeft->setChecked(m_screen->switchCorner(static_cast<int>(TopLeft)));
   ui->chkDeadTopRight->setChecked(m_screen->switchCorner(static_cast<int>(TopRight)));
   ui->chkDeadBottomLeft->setChecked(m_screen->switchCorner(static_cast<int>(BottomLeft)));
@@ -140,4 +146,80 @@ void ScreenSettingsDialog::checkNewAliasName(const QString &text)
 void ScreenSettingsDialog::aliasSelected()
 {
   ui->btnRemoveAlias->setEnabled(!ui->listAliases->selectedItems().isEmpty());
+}
+
+int ScreenSettingsDialog::detectCurrentPreset() const
+{
+  int shift = ui->comboShift->currentIndex();
+  int ctrl = ui->comboCtrl->currentIndex();
+  int alt = ui->comboAlt->currentIndex();
+  int meta = ui->comboMeta->currentIndex();
+  int super = ui->comboSuper->currentIndex();
+
+  // Check if matches "Default" preset
+  if (shift == static_cast<int>(Shift) &&
+      ctrl == static_cast<int>(Ctrl) &&
+      alt == static_cast<int>(Alt) &&
+      meta == static_cast<int>(Meta) &&
+      super == static_cast<int>(Super)) {
+    return 0; // Default
+  }
+
+  // Check if matches "Windows -> Mac" preset
+  if (shift == static_cast<int>(Shift) &&
+      ctrl == static_cast<int>(Super) &&
+      alt == static_cast<int>(Ctrl) &&
+      meta == static_cast<int>(Alt) &&
+      super == static_cast<int>(Alt)) {
+    return 1; // Windows -> Mac
+  }
+
+  // Check if matches "Mac -> Windows" preset
+  if (shift == static_cast<int>(Shift) &&
+      ctrl == static_cast<int>(Alt) &&
+      alt == static_cast<int>(Super) &&
+      meta == static_cast<int>(Meta) &&
+      super == static_cast<int>(Ctrl)) {
+    return 2; // Mac -> Windows
+  }
+
+  // No preset matches
+  return 0;
+}
+
+void ScreenSettingsDialog::applyPreset(int presetIndex)
+{
+  // Preset index: 0 = Default, 1 = Windows->Mac, 2 = Mac->Windows
+  switch (presetIndex) {
+  case 0: // Default - no remapping
+    ui->comboShift->setCurrentIndex(static_cast<int>(Shift));
+    ui->comboCtrl->setCurrentIndex(static_cast<int>(Ctrl));
+    ui->comboAlt->setCurrentIndex(static_cast<int>(Alt));
+    ui->comboMeta->setCurrentIndex(static_cast<int>(Meta));
+    ui->comboSuper->setCurrentIndex(static_cast<int>(Super));
+    break;
+
+  case 1: // Windows -> Mac (Windows client connecting to Mac server)
+    // Windows Ctrl -> Mac Command (Super)
+    // Windows Alt -> Mac Control (Ctrl)
+    // Windows Win (Meta) -> Mac Option (Alt)
+    // Windows Win (Super) -> Mac Option (Alt)
+    ui->comboShift->setCurrentIndex(static_cast<int>(Shift));
+    ui->comboCtrl->setCurrentIndex(static_cast<int>(Super));
+    ui->comboAlt->setCurrentIndex(static_cast<int>(Ctrl));
+    ui->comboMeta->setCurrentIndex(static_cast<int>(Alt));
+    ui->comboSuper->setCurrentIndex(static_cast<int>(Alt));
+    break;
+
+  case 2: // Mac -> Windows (Mac client connecting to Windows server)
+    // Mac Command (Super) -> Windows Ctrl
+    // Mac Control (Ctrl) -> Windows Alt
+    // Mac Option (Alt) -> Windows Win (Meta/Super)
+    ui->comboShift->setCurrentIndex(static_cast<int>(Shift));
+    ui->comboCtrl->setCurrentIndex(static_cast<int>(Alt));
+    ui->comboAlt->setCurrentIndex(static_cast<int>(Super));
+    ui->comboMeta->setCurrentIndex(static_cast<int>(Meta));
+    ui->comboSuper->setCurrentIndex(static_cast<int>(Ctrl));
+    break;
+  }
 }
