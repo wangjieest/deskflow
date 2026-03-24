@@ -40,8 +40,18 @@ add_library(${lib_name} STATIC ${PLATFORM_CODE}
   ClipboardChunk.h
   ClipboardMeta.cpp
   ClipboardMeta.h
+  ClipboardTransferClient.cpp
+  ClipboardTransferClient.h
+  ClipboardTransferServer.cpp
+  ClipboardTransferServer.h
+  ClipboardTransferThread.cpp
+  ClipboardTransferThread.h
+  ClipboardTransferWorker.cpp
+  ClipboardTransferWorker.h
   FileTransfer.cpp
   FileTransfer.h
+  FileTransferServer.cpp
+  FileTransferServer.h
   DeskflowException.cpp
   DeskflowException.h
   DisplayInvalidException.h
@@ -93,6 +103,9 @@ add_library(${lib_name} STATIC ${PLATFORM_CODE}
   ipc/CoreIpcServer.cpp
   ipc/CoreIpcServer.h
 )
+
+# Enable AUTOMOC for ClipboardTransferThread Q_OBJECT
+set_property(TARGET ${lib_name} PROPERTY AUTOMOC ON)
 
 target_link_libraries(${lib_name}
   PUBLIC
