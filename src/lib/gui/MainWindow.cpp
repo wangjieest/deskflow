@@ -79,13 +79,29 @@ MainWindow::MainWindow()
       m_actionStartCore{new QAction(this)},
       m_actionRestartCore{new QAction(this)},
       m_actionStopCore{new QAction(this)},
-      m_networkMonitor{new NetworkMonitor(this)}
+      m_networkMonitor{new NetworkMonitor(this)},
+      m_clientRetryTimer{new QTimer(this)},
+      m_actionBecomeHost{new QAction(this)},
+      m_btnPeers{new QPushButton(this)}
 {
   ui->setupUi(this);
 
   setWindowIcon(QIcon::fromTheme(kRevFqdnName));
 
   addDockWidget(Qt::BottomDockWidgetArea, m_logDock);
+
+  // Setup Become Host action
+  m_actionBecomeHost->setIcon(QIcon::fromTheme(QStringLiteral("network-connect")));
+  m_actionBecomeHost->setMenuRole(QAction::NoRole);
+
+  // Setup peer count button in status bar
+  m_btnPeers->setFlat(true);
+  m_btnPeers->setIcon(QIcon::fromTheme(QStringLiteral("network-connect")));
+  m_btnPeers->setVisible(false);
+  m_btnPeers->setToolTip(tr("Discovered peers"));
+
+  // Initialize discovery service
+  initDiscoveryService();
 
   // Setup Actions
   m_actionAbout->setMenuRole(QAction::AboutRole);
@@ -263,6 +279,7 @@ void MainWindow::connectSlots()
   connect(m_actionStartCore, &QAction::triggered, this, &MainWindow::startCore);
   connect(m_actionRestartCore, &QAction::triggered, this, &MainWindow::resetCore);
   connect(m_actionStopCore, &QAction::triggered, this, &MainWindow::stopCore);
+  connect(m_actionBecomeHost, &QAction::triggered, this, &MainWindow::becomeHost);
 
   // Mac os tray will only show a menu
   if (!deskflow::platform::isMac())
@@ -957,6 +974,11 @@ void MainWindow::coreProcessStateChanged(ProcessState state)
     m_actionStartCore->setVisible(true);
     m_actionRestartCore->setVisible(false);
     m_actionStopCore->setEnabled(false);
+
+    // Release master role when server stops
+    if (state == Stopped && m_coreProcess.mode() == CoreMode::Server && m_discoveryService) {
+      m_discoveryService->releaseMaster();
+    }
   }
   updateModeControlLabels();
 }
@@ -967,13 +989,32 @@ void MainWindow::coreConnectionStateChanged(ConnectionState state)
 
   updateStatus();
 
+  // Notify discovery when server is listening
+  if (state == ConnectionState::Listening) {
+    if (m_coreProcess.mode() == CoreMode::Server && m_discoveryService) {
+      m_discoveryService->notifyMasterReady();
+    }
+  }
+
   // always assume connection is not secure when connection changes
   // to anything except connected. the only way the padlock shows is
   // when the correct TLS version string is detected.
   if (state != ConnectionState::Connected) {
     secureSocket(false);
-  } else if (isVisible()) {
-    showFirstConnectedMessage();
+  } else {
+    // Reset error/retry state on successful connection
+    m_clientErrorShownOnce = false;
+    m_clientRetryCount = 0;
+    if (m_clientRetryTimer->isActive()) {
+      m_clientRetryTimer->stop();
+    }
+    if (m_autoModeSwitch) {
+      m_autoModeSwitch = false;
+      m_autoModeSwitchRetries = 0;
+    }
+    if (isVisible()) {
+      showFirstConnectedMessage();
+    }
   }
 }
 
@@ -1051,6 +1092,9 @@ void MainWindow::updateText()
 
   //: stop core shortcut
   m_actionStopCore->setShortcut(QKeySequence(tr("Ctrl+T")));
+
+  m_actionBecomeHost->setText(tr("&Become Host\tCtrl+Alt+H"));
+  m_actionBecomeHost->setShortcut(QKeySequence(tr("Ctrl+Alt+H")));
 
   if (deskflow::platform::isWindows()) {
     //: Quit shortcut
@@ -1271,4 +1315,217 @@ bool MainWindow::canRunCore() const
   const bool isServer = mode == Settings::CoreMode::Server;
   const bool isClient = mode == Settings::CoreMode::Client;
   return ((isServer || isClient) && (isClient && !ui->lineHostname->text().isEmpty()) || isServer);
+}
+
+// =============================================================================
+// AutoDeskflow: Discovery and Become Host
+// =============================================================================
+
+using DiscoveryService = deskflow::gui::discovery::DiscoveryService;
+using DiscoveryRole = deskflow::gui::discovery::Role;
+
+void MainWindow::initDiscoveryService()
+{
+  m_discoveryService = new DiscoveryService(this);
+
+  // Load token from settings, fallback to username
+  QString token = Settings::value(Settings::Core::GroupToken).toString();
+  if (token.isEmpty()) {
+    token = qEnvironmentVariable("USERNAME", qEnvironmentVariable("USER", "autodeskflow")).toLower();
+  }
+  m_discoveryService->setToken(token);
+
+  // Set node name from settings
+  QString computerName = Settings::value(Settings::Core::ComputerName).toString();
+  if (!computerName.isEmpty()) {
+    m_discoveryService->setNodeName(computerName);
+  }
+
+  // Set listen port
+  m_discoveryService->setListenPort(
+      Settings::value(Settings::Core::Port).toUInt());
+
+  // Connect signals
+  connect(m_discoveryService, &DiscoveryService::peerDiscovered,
+          this, &MainWindow::onPeerDiscovered);
+  connect(m_discoveryService, &DiscoveryService::peerLost,
+          this, &MainWindow::onPeerLost);
+  connect(m_discoveryService, &DiscoveryService::shouldConnectToMaster,
+          this, &MainWindow::onShouldConnectToMaster);
+  connect(m_discoveryService, &DiscoveryService::shouldYieldMaster,
+          this, &MainWindow::onShouldYieldMaster);
+  connect(m_discoveryService, &DiscoveryService::roleChanged,
+          this, &MainWindow::onDiscoveryRoleChanged);
+
+  m_discoveryService->start();
+}
+
+void MainWindow::onPeerDiscovered(const deskflow::gui::discovery::PeerNode &peer)
+{
+  qInfo() << "[AutoDeskflow] Peer discovered:" << peer.nodeName << "at" << peer.ip;
+  updatePeerCount();
+
+  // If we're server, auto-add peer to screen config
+  if (m_coreProcess.mode() == CoreMode::Server) {
+    addDiscoveredPeersToServerConfig();
+  }
+}
+
+void MainWindow::onPeerLost(const QString &nodeId)
+{
+  qInfo() << "[AutoDeskflow] Peer lost:" << nodeId;
+  updatePeerCount();
+}
+
+void MainWindow::updatePeerCount()
+{
+  if (!m_discoveryService) return;
+
+  const auto peers = m_discoveryService->peers();
+  const int count = peers.size();
+
+  if (count == 0) {
+    m_btnPeers->setVisible(false);
+    return;
+  }
+
+  m_btnPeers->setVisible(true);
+  m_btnPeers->setText(QString::number(count));
+
+  QStringList peerNames;
+  for (const auto &p : peers) {
+    peerNames.append(QStringLiteral("%1 (%2)").arg(p.nodeName, p.ip));
+  }
+  m_btnPeers->setToolTip(tr("Discovered peers:\n%1").arg(peerNames.join("\n")));
+}
+
+void MainWindow::becomeHost()
+{
+  if (!m_discoveryService) return;
+
+  // Already master? Just re-notify
+  if (m_discoveryService->isMaster()) {
+    m_discoveryService->notifyMasterReady();
+    return;
+  }
+
+  // Broadcast claim intent
+  m_discoveryService->claimMaster();
+
+  // Stop current client if running
+  if (m_coreProcess.isStarted() && m_coreProcess.mode() == CoreMode::Client) {
+    m_coreProcess.stop();
+  }
+
+  // Start as server
+  startServerAsMaster();
+}
+
+void MainWindow::startServerAsMaster()
+{
+  if (m_yieldingToMaster) {
+    return;
+  }
+
+  // Switch to server mode
+  if (!ui->rbModeServer->isChecked()) {
+    ui->rbModeServer->setChecked(true);
+  }
+
+  // Add discovered peers to config
+  addDiscoveredPeersToServerConfig();
+
+  // Start server
+  if (!m_coreProcess.isStarted()) {
+    startCore();
+  }
+}
+
+void MainWindow::addDiscoveredPeersToServerConfig()
+{
+  if (!m_discoveryService) return;
+
+  const auto peers = m_discoveryService->peers();
+  for (const auto &peer : peers) {
+    if (!m_serverConfig.screenExists(peer.nodeName)) {
+      qInfo() << "[AutoDeskflow] Auto-adding peer screen:" << peer.nodeName;
+      m_serverConfig.addClient(peer.nodeName);
+    }
+  }
+  if (!peers.isEmpty()) {
+    m_serverConfig.commit();
+  }
+}
+
+void MainWindow::onShouldYieldMaster(const QString &winnerNodeId, const QString &winnerName)
+{
+  qInfo() << "[AutoDeskflow] Yielding master to:" << winnerName;
+  m_yieldingToMaster = true;
+
+  // Stop current server
+  if (m_coreProcess.isStarted() && m_coreProcess.mode() == CoreMode::Server) {
+    m_coreProcess.stop();
+  }
+
+  // Release master role
+  if (m_discoveryService && m_discoveryService->isMaster()) {
+    m_discoveryService->releaseMaster();
+  }
+}
+
+void MainWindow::onShouldConnectToMaster(const QString &ip, uint16_t port)
+{
+  qInfo() << "[AutoDeskflow] Connecting to new master at" << ip << ":" << port;
+  m_yieldingToMaster = false;
+
+  // Set auto mode switch flag (suppress error dialogs)
+  m_autoModeSwitch = true;
+  m_autoModeSwitchRetries = 0;
+
+  // Stop current process first
+  if (m_coreProcess.isStarted()) {
+    m_coreProcess.stop();
+    QTimer::singleShot(1500, this, [this, ip, port]() {
+      startClientConnection(ip, port);
+    });
+    return;
+  }
+
+  startClientConnection(ip, port);
+}
+
+void MainWindow::startClientConnection(const QString &ip, uint16_t port)
+{
+  // Switch to client mode
+  ui->rbModeClient->setChecked(true);
+  Settings::setValue(Settings::Core::CoreMode, Settings::CoreMode::Client);
+
+  // Set server address
+  QString serverAddress = (port == 24800) ? ip : QStringLiteral("%1:%2").arg(ip).arg(port);
+  ui->lineHostname->setText(serverAddress);
+  Settings::setValue(Settings::Client::RemoteHost, serverAddress);
+
+  // Start client
+  updateModeControls();
+  m_coreProcess.start();
+}
+
+void MainWindow::onDiscoveryRoleChanged(deskflow::gui::discovery::Role role)
+{
+  using Role = deskflow::gui::discovery::Role;
+
+  if (role == Role::Master) {
+    qInfo() << "[AutoDeskflow] Role changed to Master";
+  } else if (role == Role::Slave) {
+    qInfo() << "[AutoDeskflow] Role changed to Slave";
+  } else {
+    qInfo() << "[AutoDeskflow] Role changed to Idle";
+  }
+}
+
+void MainWindow::checkFileTransfer(const QString &line)
+{
+  // Placeholder for file transfer progress parsing
+  // Will be implemented in later stages
+  Q_UNUSED(line)
 }

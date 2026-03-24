@@ -118,6 +118,7 @@ private:
   static QString processModeToString(const Settings::ProcessMode mode);
   static QString processStateToString(const CoreProcess::ProcessState state);
   static QString wrapIpv6(const QString &address);
+  void killExistingCoreProcess();
 
   const ServerConfig &m_serverConfig;
   QString m_address;

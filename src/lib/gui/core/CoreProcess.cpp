@@ -154,11 +154,16 @@ void CoreProcess::onProcessFinished(int exitCode, QProcess::ExitStatus)
   }
 
   if (exitCode != s_exitSuccess) {
+    if (exitCode == s_exitDuplicate) {
+      qWarning("desktop process is already running, killing existing process and retrying");
+      killExistingCoreProcess();
+      setProcessState(RetryPending);
+      m_retryTimer.setSingleShot(true);
+      m_retryTimer.start(kRetryDelay);
+      return;
+    }
     setProcessState(Stopped);
-    if (exitCode == s_exitDuplicate)
-      qWarning("desktop process is already running");
-    else
-      qWarning("desktop process exited with code: %d", exitCode);
+    qWarning("desktop process exited with code: %d", exitCode);
     return;
   }
 
@@ -631,6 +636,29 @@ void CoreProcess::clearSettings()
 void CoreProcess::retryDaemon()
 {
   m_daemonIpcClient->connectToServer();
+}
+
+void CoreProcess::killExistingCoreProcess()
+{
+#ifdef Q_OS_WIN
+  QProcess killProcess;
+  QString coreName = QFileInfo(m_appPath).fileName();
+  if (coreName.isEmpty()) {
+    coreName = QStringLiteral("deskflow-core.exe");
+  }
+  qInfo() << "killing existing core process:" << coreName;
+  killProcess.start(QStringLiteral("taskkill"), {QStringLiteral("/F"), QStringLiteral("/IM"), coreName});
+  killProcess.waitForFinished(5000);
+#else
+  QProcess killProcess;
+  QString coreName = QFileInfo(m_appPath).fileName();
+  if (coreName.isEmpty()) {
+    coreName = QStringLiteral("deskflow-core");
+  }
+  qInfo() << "killing existing core process:" << coreName;
+  killProcess.start(QStringLiteral("pkill"), {QStringLiteral("-9"), coreName});
+  killProcess.waitForFinished(5000);
+#endif
 }
 
 } // namespace deskflow::gui

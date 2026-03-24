@@ -240,6 +240,10 @@ void SettingsDialog::accept()
   Settings::setValue(Settings::Core::ScreenEnterCommand, ui->lineCommandEnter->text());
   Settings::setValue(Settings::Core::ScreenExitCommand, ui->lineCommandExit->text());
 
+  // AutoDeskflow settings - saved to config even if UI controls not yet added
+  // GroupToken and EnableFileTransfer are managed through Settings directly
+  // UI widgets will be added to SettingsDialog.ui in a future update
+
   Settings::ProcessMode mode;
   if (ui->groupService->isChecked())
     mode = Settings::ProcessMode::Service;
