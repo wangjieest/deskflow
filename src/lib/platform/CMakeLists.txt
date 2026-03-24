@@ -1,6 +1,6 @@
-# SPDX-FileCopyrightText: (C) 2024 Chris Rizzitello <sithlord48@gmail.com>
-# SPDX-FileCopyrightText: (C) 2012 - 2024 Symless Ltd
-# SPDX-FileCopyrightText: (C) 2009 - 2012 Nick Bolton
+# SPDX-FileCopyrightText: 2024 Chris Rizzitello <sithlord48@gmail.com>
+# SPDX-FileCopyrightText: 2012 - 2024 Symless Ltd
+# SPDX-FileCopyrightText: 2009 - 2012 Nick Bolton
 # SPDX-License-Identifier: MIT
 
 if(UNIX AND NOT APPLE)
@@ -22,10 +22,16 @@ if(WIN32)
     MSWindowsClipboardBitmapConverter.h
     MSWindowsClipboardFacade.cpp
     MSWindowsClipboardFacade.h
+    MSWindowsClipboardFileConverter.cpp
+    MSWindowsClipboardFileConverter.h
     MSWindowsClipboardHTMLConverter.cpp
     MSWindowsClipboardHTMLConverter.h
     MSWindowsClipboardUTF16Converter.cpp
     MSWindowsClipboardUTF16Converter.h
+    MSWindowsDataObject.cpp
+    MSWindowsDataObject.h
+    MSWindowsP2PStream.cpp
+    MSWindowsP2PStream.h
     MSWindowsDebugOutputter.cpp
     MSWindowsDebugOutputter.h
     MSWindowsDesks.cpp
@@ -62,6 +68,8 @@ elseif(APPLE)
     OSXClipboardAnyTextConverter.h
     OSXClipboardBMPConverter.cpp
     OSXClipboardBMPConverter.h
+    OSXClipboardFileConverter.cpp
+    OSXClipboardFileConverter.h
     OSXClipboardHTMLConverter.cpp
     OSXClipboardHTMLConverter.h
     OSXClipboardTextConverter.cpp
@@ -159,6 +167,17 @@ endif()
 # wayland.h is included to check for wayland support
 add_library(platform STATIC ${PLATFORM_SOURCES})
 
+# Find and link nlohmann_json for Windows clipboard JSON support
+if(WIN32)
+  find_package(nlohmann_json CONFIG)
+  if(nlohmann_json_FOUND)
+    target_link_libraries(platform PRIVATE nlohmann_json::nlohmann_json)
+  else()
+    # Fallback: include vcpkg installed headers directly
+    target_include_directories(platform PRIVATE "C:/vcpkg/installed/x64-windows/include")
+  endif()
+endif()
+
 target_link_libraries(platform client ${libs})
 
 if(UNIX)
@@ -177,7 +196,7 @@ if(UNIX)
     if(${LIBXKBCOMMON_VERSION} VERSION_GREATER_EQUAL "1.10")
       target_compile_definitions(platform PRIVATE HAVE_XKB_KEYMAP_MOD_GET_MASK=1)
     endif()
-    target_compile_definitions(platform PUBLIC WINAPI_LIBEI WINAPI_LIBPORTAL)
+    target_compile_definitions(platform PUBLIC WINAPI_LIBEI WINAPI_LIBPORTAL HAVE_LIBPORTAL_INPUTCAPTURE)
     target_include_directories(platform PUBLIC ${LIBEI_INCLUDE_DIRS} ${LIBPORTAL_INCLUDE_DIRS})
     target_link_libraries(
       platform

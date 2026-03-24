@@ -1,6 +1,5 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2026 Deskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -9,10 +8,19 @@
 #include "platform/MSWindowsClipboard.h"
 
 #include "base/Log.h"
+#include "deskflow/ClipboardTransferClient.h"
+#include "deskflow/IClipboard.h"
 #include "platform/MSWindowsClipboardBitmapConverter.h"
 #include "platform/MSWindowsClipboardFacade.h"
+#include "platform/MSWindowsClipboardFileConverter.h"
 #include "platform/MSWindowsClipboardHTMLConverter.h"
 #include "platform/MSWindowsClipboardUTF16Converter.h"
+#include "platform/MSWindowsDataObject.h"
+
+#include <objbase.h>
+#include <shellapi.h>
+
+#include <nlohmann/json.hpp>
 
 //
 // MSWindowsClipboard
@@ -24,12 +32,17 @@ MSWindowsClipboard::MSWindowsClipboard(HWND window)
     : m_window(window),
       m_time(0),
       m_facade(new MSWindowsClipboardFacade()),
-      m_deleteFacade(true)
+      m_deleteFacade(true),
+      m_transferClient(nullptr)
 {
+  // Initialize OLE for IDataObject support
+  OleInitialize(nullptr);
+
   // add converters, most desired first
   m_converters.push_back(new MSWindowsClipboardUTF16Converter);
   m_converters.push_back(new MSWindowsClipboardBitmapConverter);
   m_converters.push_back(new MSWindowsClipboardHTMLConverter);
+  m_converters.push_back(new MSWindowsClipboardFileConverter);
 }
 
 MSWindowsClipboard::~MSWindowsClipboard()
@@ -41,6 +54,9 @@ MSWindowsClipboard::~MSWindowsClipboard()
   // be a more elegant way of doing this.
   if (m_deleteFacade)
     delete m_facade;
+
+  // Uninitialize OLE
+  OleUninitialize();
 }
 
 void MSWindowsClipboard::setFacade(IMSWindowsClipboardFacade &facade)
@@ -89,6 +105,44 @@ void MSWindowsClipboard::add(Format format, const std::string &data)
     LOG_DEBUG("not adding 0 bytes to clipboard format: %d", format);
     return;
   }
+
+  // Special handling for FileList format using IDataObject streaming
+  if (format == Format::FileList) {
+    if (addFileListAsIDataObject(data)) {
+      LOG_INFO("Successfully added file list using IDataObject streaming");
+      return;
+    }
+    LOG_WARN("Failed to add file list as IDataObject, falling back to standard conversion");
+  }
+
+  // TODO: Special handling for Text format using IDataObject delayed rendering
+  // Temporarily disabled for compilation - needs setTextData() implementation in MSWindowsDataObject
+  /*
+  if (format == Format::Text) {
+    // Use IDataObject for large text or when transfer client is available
+    if (data.size() > 10240 || m_transferClient != nullptr) { // > 10KB
+      if (addTextAsIDataObject(data)) {
+        LOG_INFO("Successfully added text using IDataObject delayed rendering");
+        return;
+      }
+      LOG_DEBUG("Failed to add text as IDataObject, falling back to standard conversion");
+    }
+  }
+
+  // TODO: Special handling for HTML format using IDataObject delayed rendering
+  // Temporarily disabled - Format::Html enum value not defined
+  if (format == Format::Html) {
+    // Use IDataObject for large HTML or when transfer client is available
+    if (data.size() > 10240 || m_transferClient != nullptr) { // > 10KB
+      if (addHtmlAsIDataObject(data)) {
+        LOG_INFO("Successfully added HTML using IDataObject delayed rendering");
+        return;
+      }
+      LOG_DEBUG("Failed to add HTML as IDataObject, falling back to standard conversion");
+    }
+  }
+  */
+
   bool isSucceeded = false;
   // convert data to win32 form
   for (ConverterList::const_iterator index = m_converters.begin(); index != m_converters.end(); ++index) {
@@ -97,6 +151,21 @@ void MSWindowsClipboard::add(Format format, const std::string &data)
     // skip converters for other formats
     if (converter->getFormat() == format) {
       HANDLE win32Data = converter->fromIClipboard(data);
+
+      // Check if this is a FileList format using delayed rendering
+      if (format == Format::FileList && MSWindowsClipboardFileConverter::isDelayedRenderingActive()) {
+        // Use Windows delayed rendering mechanism:
+        // SetClipboardData with NULL handle tells Windows to send WM_RENDERFORMAT
+        // when an application actually requests this data (e.g., user pastes)
+        LOG_INFO("using delayed rendering for CF_HDROP (file list)");
+        if (SetClipboardData(CF_HDROP, nullptr) != nullptr) {
+          isSucceeded = true;
+        } else {
+          LOG_ERR("failed to set delayed rendering for CF_HDROP: %d", GetLastError());
+        }
+        break;
+      }
+
       if (win32Data != nullptr) {
         LOG_DEBUG("add %d bytes to clipboard format: %d", data.size(), format);
         m_facade->write(win32Data, converter->getWin32Format());
@@ -113,30 +182,116 @@ void MSWindowsClipboard::add(Format format, const std::string &data)
   }
 }
 
+bool MSWindowsClipboard::addFileListAsIDataObject(const std::string &jsonData)
+{
+  try {
+    // Parse JSON file list
+    auto json = nlohmann::json::parse(jsonData);
+
+    if (!json.is_array() || json.empty()) {
+      LOG_ERR("Invalid file list JSON: not an array or empty");
+      return false;
+    }
+
+    // Extract P2P connection info from first file
+    // Assume all files come from same source
+    std::string sourceAddr;
+    uint16_t sourcePort = 0;
+    uint64_t sessionId = 0;
+
+    if (json[0].contains("sourceAddr")) {
+      sourceAddr = json[0]["sourceAddr"].get<std::string>();
+    }
+    if (json[0].contains("sourcePort")) {
+      sourcePort = json[0]["sourcePort"].get<uint16_t>();
+    }
+    if (json[0].contains("sessionId")) {
+      sessionId = json[0]["sessionId"].get<uint64_t>();
+    }
+
+    // Check if we have P2P info
+    if (sourceAddr.empty() || sourcePort == 0) {
+      LOG_WARN("File list missing P2P connection info - cannot use IDataObject streaming");
+      return false;
+    }
+
+    // Convert to FileMetadata
+    std::vector<FileMetadata> files;
+    for (const auto &item : json) {
+      FileMetadata meta;
+
+      // Convert name to wide string
+      if (item.contains("name")) {
+        std::string name = item["name"].get<std::string>();
+        meta.name = std::wstring(name.begin(), name.end());
+      }
+
+      // Relative path for subdirectories
+      if (item.contains("relativePath")) {
+        std::string relPath = item["relativePath"].get<std::string>();
+        meta.relativePath = std::wstring(relPath.begin(), relPath.end());
+      }
+
+      // Remote path
+      if (item.contains("path")) {
+        meta.remotePath = item["path"].get<std::string>();
+      }
+
+      // Size
+      if (item.contains("size")) {
+        meta.size = item["size"].get<uint64_t>();
+      }
+
+      // Is directory
+      if (item.contains("isDir")) {
+        meta.isDir = item["isDir"].get<bool>();
+      }
+
+      // P2P info
+      meta.sourceAddr = sourceAddr;
+      meta.sourcePort = sourcePort;
+      meta.sessionId = sessionId;
+
+      files.push_back(meta);
+    }
+
+    LOG_INFO("Creating IDataObject for %zu files from %s:%u", files.size(), sourceAddr.c_str(), sourcePort);
+
+    // Create IDataObject
+    MSWindowsDataObject *pDataObject = new MSWindowsDataObject(files, m_transferClient);
+
+    // Set to clipboard using OleSetClipboard
+    HRESULT hr = OleSetClipboard(pDataObject);
+
+    // Release our reference (OleSetClipboard adds its own)
+    pDataObject->Release();
+
+    if (FAILED(hr)) {
+      LOG_ERR("OleSetClipboard failed: 0x%08X", hr);
+      return false;
+    }
+
+    LOG_INFO("Successfully set IDataObject to clipboard");
+    return true;
+
+  } catch (const std::exception &e) {
+    LOG_ERR("Exception parsing file list JSON: %s", e.what());
+    return false;
+  }
+}
+
 bool MSWindowsClipboard::open(Time time) const
 {
   LOG_DEBUG("open clipboard");
 
-  // The clipboard is a global mutex on Windows. We aren't always going to
-  // get the lock on the first try, so try a few times before giving up.
-  // Based on Chromium's ScopedClipboard::Acquire() retry loop.
-  static const int kMaxRetries = 5;
-  static const int kRetryDelayMs = 5;
-
-  for (int i = 0; i < kMaxRetries; ++i) {
-    if (OpenClipboard(m_window)) {
-      m_time = time;
-      return true;
-    }
-
-    if (i < kMaxRetries - 1) {
-      LOG_DEBUG("failed to open clipboard (attempt %d/%d, error=%d), retrying", i + 1, kMaxRetries, GetLastError());
-      Sleep(kRetryDelayMs);
-    }
+  if (!OpenClipboard(m_window)) {
+    LOG_WARN("failed to open clipboard: %d", GetLastError());
+    return false;
   }
 
-  LOG_WARN("failed to open clipboard after %d attempts: %d", kMaxRetries, GetLastError());
-  return false;
+  m_time = time;
+
+  return true;
 }
 
 void MSWindowsClipboard::close() const
@@ -221,4 +376,88 @@ UINT MSWindowsClipboard::getOwnershipFormat()
 
   // return the format
   return s_ownershipFormat;
+}
+
+// TODO: Temporarily disabled - needs setTextData() implementation
+/*
+bool MSWindowsClipboard::addTextAsIDataObject(const std::string &text)
+{
+  try {
+    LOG_INFO("Adding text using IDataObject delayed rendering (%zu bytes)", text.size());
+
+    // Create empty file list
+    std::vector<FileMetadata> empty;
+    MSWindowsDataObject *pDataObject = new MSWindowsDataObject(empty, m_transferClient);
+
+    // Set text data for delayed rendering
+    pDataObject->setTextData(text);
+
+    // Set to clipboard
+    HRESULT hr = OleSetClipboard(pDataObject);
+
+    // Release our reference (OleSetClipboard adds its own)
+    pDataObject->Release();
+
+    if (FAILED(hr)) {
+      LOG_ERR("OleSetClipboard failed for text: 0x%08X", hr);
+      return false;
+    }
+
+    LOG_INFO("Successfully set text to clipboard using IDataObject");
+    return true;
+
+  } catch (const std::exception &e) {
+    LOG_ERR("Exception in addTextAsIDataObject: %s", e.what());
+    return false;
+  }
+}
+
+bool MSWindowsClipboard::addHtmlAsIDataObject(const std::string &html)
+{
+  try {
+    LOG_INFO("Adding HTML using IDataObject delayed rendering (%zu bytes)", html.size());
+
+    // Create empty file list
+    std::vector<FileMetadata> empty;
+    MSWindowsDataObject *pDataObject = new MSWindowsDataObject(empty, m_transferClient);
+
+    // Set HTML as text data (could also convert to RTF)
+    pDataObject->setTextData(html);
+
+    // If we have RTF converter, could also set RTF:
+    // std::string rtf = convertHtmlToRtf(html);
+    // pDataObject->setRtfData(rtf);
+
+    // Set to clipboard
+    HRESULT hr = OleSetClipboard(pDataObject);
+
+    // Release our reference
+    pDataObject->Release();
+
+    if (FAILED(hr)) {
+      LOG_ERR("OleSetClipboard failed for HTML: 0x%08X", hr);
+      return false;
+    }
+
+    LOG_INFO("Successfully set HTML to clipboard using IDataObject");
+    return true;
+
+  } catch (const std::exception &e) {
+    LOG_ERR("Exception in addHtmlAsIDataObject: %s", e.what());
+    return false;
+  }
+}
+*/
+
+// Temporary stub implementations
+bool MSWindowsClipboard::addTextAsIDataObject(const std::string &text)
+{
+  LOG_DEBUG("addTextAsIDataObject temporarily disabled");
+  return false;
+}
+
+bool MSWindowsClipboard::addHtmlAsIDataObject(const std::string &html)
+{
+  LOG_DEBUG("addHtmlAsIDataObject temporarily disabled");
+  return false;
 }

@@ -72,6 +72,8 @@ std::string MSWindowsClipboardBitmapConverter::toIClipboard(HANDLE data) const
   BITMAPINFOHEADER info;
   LONG w = bitmap->bmiHeader.biWidth;
   LONG h = bitmap->bmiHeader.biHeight;
+  // biHeight can be negative for top-down DIBs, use absolute value for size calculations
+  LONG absH = (h < 0) ? -h : h;
   info.biSize = sizeof(BITMAPINFOHEADER);
   info.biWidth = w;
   info.biHeight = h;
@@ -103,14 +105,14 @@ std::string MSWindowsClipboardBitmapConverter::toIClipboard(HANDLE data) const
   // copy source image to destination image
   HDC dstDC = CreateCompatibleDC(dc);
   HGDIOBJ oldBitmap = SelectObject(dstDC, dst);
-  SetDIBitsToDevice(dstDC, 0, 0, w, h, 0, 0, 0, h, srcBits, bitmap, DIB_RGB_COLORS);
+  SetDIBitsToDevice(dstDC, 0, 0, w, absH, 0, 0, 0, absH, srcBits, bitmap, DIB_RGB_COLORS);
   SelectObject(dstDC, oldBitmap);
   DeleteDC(dstDC);
   GdiFlush();
 
   // extract data
   std::string image((const char *)&info, info.biSize);
-  image.append((const char *)raw, 4 * w * h);
+  image.append((const char *)raw, 4 * w * absH);
 
   // clean up GDI
   DeleteObject(dst);

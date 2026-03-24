@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2025 AutoDeskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2002 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -17,6 +17,7 @@
 
 class IMSWindowsClipboardConverter;
 class IMSWindowsClipboardFacade;
+class ClipboardTransferClient;
 
 //! Microsoft windows clipboard implementation
 class MSWindowsClipboard : public IClipboard
@@ -44,6 +45,9 @@ public:
   //! Test if clipboard is owned by deskflow
   static bool isOwnedByDeskflow();
 
+  //! Set transfer client for P2P file streaming
+  void setTransferClient(ClipboardTransferClient *client) { m_transferClient = client; }
+
   // IClipboard overrides
   bool empty() override;
   void add(Format, const std::string &data) override;
@@ -57,6 +61,33 @@ public:
 
 private:
   void clearConverters();
+
+  /**
+   * @brief Add file list using IDataObject streaming
+   *
+   * Parses JSON file list and creates IDataObject for delayed rendering.
+   * Falls back to standard conversion if P2P info is missing.
+   *
+   * @param jsonData JSON array of file metadata
+   * @return true if IDataObject was successfully set
+   */
+  bool addFileListAsIDataObject(const std::string &jsonData);
+
+  /**
+   * @brief Add text using IDataObject delayed rendering
+   *
+   * @param text Text data
+   * @return true if IDataObject was successfully set
+   */
+  bool addTextAsIDataObject(const std::string &text);
+
+  /**
+   * @brief Add HTML/RTF using IDataObject delayed rendering
+   *
+   * @param html HTML data
+   * @return true if IDataObject was successfully set
+   */
+  bool addHtmlAsIDataObject(const std::string &html);
 
   UINT convertFormatToWin32(Format) const;
   HANDLE convertTextToWin32(const std::string &data) const;
@@ -73,6 +104,7 @@ private:
   static UINT s_ownershipFormat;
   IMSWindowsClipboardFacade *m_facade;
   bool m_deleteFacade;
+  ClipboardTransferClient *m_transferClient; // Not owned
 };
 
 //! Clipboard format converter interface

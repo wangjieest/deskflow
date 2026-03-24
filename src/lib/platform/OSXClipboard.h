@@ -1,6 +1,6 @@
 /*
  * Deskflow -- mouse and keyboard sharing utility
- * SPDX-FileCopyrightText: (C) 2025 Deskflow Developers
+ * SPDX-FileCopyrightText: (C) 2025 AutoDeskflow Developers
  * SPDX-FileCopyrightText: (C) 2012 - 2016 Symless Ltd.
  * SPDX-FileCopyrightText: (C) 2004 Chris Schoeneman
  * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
@@ -36,8 +36,19 @@ public:
 
   bool synchronize();
 
+  //! Get the pasteboard reference for advanced operations
+  PasteboardRef getPasteboardRef() const { return m_pboard; }
+
 private:
   void clearConverters();
+
+  //! Add file promise to pasteboard (for file list clipboard)
+  void addFilePromise(const std::string &data);
+
+  //! Promise keeper callback (called when paste happens)
+  static OSStatus promiseKeeperCallback(
+      PasteboardRef pasteboard, PasteboardItemID item,
+      CFStringRef flavorType, void *context);
 
 private:
   using ConverterList = std::vector<IOSXClipboardConverter *>;
@@ -45,6 +56,9 @@ private:
   mutable Time m_time;
   ConverterList m_converters;
   PasteboardRef m_pboard;
+
+  //! Track if we have set up the promise keeper
+  static bool s_promiseKeeperSet;
 };
 
 //! Clipboard format converter interface

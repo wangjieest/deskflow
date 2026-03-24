@@ -108,6 +108,11 @@ void ArchMultithreadPosix::setNetworkDataForCurrentThread(void *data)
 {
   std::scoped_lock lock{m_threadMutex};
   ArchThreadImpl *thread = find(pthread_self());
+  if (thread == nullptr) {
+    // Thread not managed by ArchMultithreadPosix (e.g., QThread, std::thread)
+    // This is safe to ignore - the thread doesn't need network data tracking
+    return;
+  }
   thread->m_networkData = data;
 }
 
@@ -327,7 +332,10 @@ ArchThread ArchMultithreadPosix::newCurrentThread()
 
 void ArchMultithreadPosix::closeThread(ArchThread thread)
 {
-  assert(thread != nullptr);
+  if (thread == nullptr) {
+    // Thread not managed by ArchMultithreadPosix (e.g., QThread, std::thread)
+    return;
+  }
 
   // decrement ref count and clean up thread if no more references
   if (--thread->m_refCount == 0) {
@@ -339,8 +347,10 @@ void ArchMultithreadPosix::closeThread(ArchThread thread)
     // remove thread from list
     {
       std::scoped_lock lock{m_threadMutex};
-      assert(findNoRef(thread->m_thread) == thread);
-      erase(thread);
+      // Check if thread is still in list (might have been removed by QThread)
+      if (findNoRef(thread->m_thread) == thread) {
+        erase(thread);
+      }
     }
 
     // done with thread
@@ -390,6 +400,13 @@ void ArchMultithreadPosix::testCancelThread()
     std::scoped_lock lock{m_threadMutex};
     thread = findNoRef(pthread_self());
   }
+
+  // Thread not managed by ArchMultithreadPosix (e.g., QThread)
+  if (thread == nullptr) {
+    // QThread manages its own cancellation, safe to ignore
+    return;
+  }
+
   // test cancel on thread
   testCancelThreadImpl(thread);
 }
@@ -585,7 +602,11 @@ void ArchMultithreadPosix::refThread(ArchThreadImpl *thread)
 
 void ArchMultithreadPosix::testCancelThreadImpl(ArchThreadImpl *thread)
 {
-  assert(thread != nullptr);
+  if (thread == nullptr) {
+    // Thread not managed by ArchMultithreadPosix (e.g., QThread)
+    // QThread manages its own cancellation
+    return;
+  }
 
   // update cancel state
   std::scoped_lock lock{m_threadMutex};

@@ -21,6 +21,10 @@ add_library(${target} STATIC
   Diagnostic.h
   FileTail.cpp
   FileTail.h
+  FileTransferManager.cpp
+  FileTransferManager.h
+  FileTransferMonitor.cpp
+  FileTransferMonitor.h
   Hotkey.cpp
   Hotkey.h
   KeySequence.cpp
@@ -62,6 +66,8 @@ add_library(${target} STATIC
   dialogs/ClientConfigDialog.h
   dialogs/ClientConfigDialog.cpp
   dialogs/ClientConfigDialog.ui
+  dialogs/FileTransferDialog.cpp
+  dialogs/FileTransferDialog.h
   dialogs/FingerprintDialog.cpp
   dialogs/FingerprintDialog.h
   dialogs/HotkeyDialog.cpp

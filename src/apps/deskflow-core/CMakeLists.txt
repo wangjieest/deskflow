@@ -1,12 +1,12 @@
-# SPDX-FileCopyrightText: (C) 2024 - 2025 Chris Rizzitello <sithlord48@gmail.com>
-# SPDX-FileCopyrightText: (C) 2012 - 2024 Symless Ltd
-# SPDX-FileCopyrightText: (C) 2009 - 2012 Nick Bolton
+# SPDX-FileCopyrightText: 2024 - 2025 Chris Rizzitello <sithlord48@gmail.com>
+# SPDX-FileCopyrightText: 2012 - 2024 Symless Ltd
+# SPDX-FileCopyrightText: 2009 - 2012 Nick Bolton
 # SPDX-License-Identifier: MIT
 
 set(target ${CMAKE_PROJECT_NAME}-core)
 
 add_executable(${target}
-  "${target}.cpp"
+  deskflow-core.cpp
   CoreArgs.h
   CoreArgParser.h
   CoreArgParser.cpp
@@ -19,7 +19,7 @@ if(WIN32)
   configure_file(${CMAKE_SOURCE_DIR}/src/apps/res/windows.rc.in ${target}.rc)
 
   target_sources(${target} PRIVATE
-    ${target}.exe.manifest
+    deskflow-core.exe.manifest
     ${CMAKE_SOURCE_DIR}/src/apps/res/deskflow.ico
     ${CMAKE_CURRENT_BINARY_DIR}/${target}.rc
   )
@@ -50,9 +50,6 @@ if(BUILD_OSX_BUNDLE)
     INSTALL_RPATH "@loader_path/../Libraries;@loader_path/../Frameworks"
     RUNTIME_OUTPUT_DIRECTORY $<TARGET_BUNDLE_CONTENT_DIR:${CMAKE_PROJECT_PROPER_NAME}>/MacOS
   )
-  if (APPLE_CODESIGN_DEV)
-    configure_mac_codesign(${target})
-  endif()
 elseif (WIN32)
   install(RUNTIME_DEPENDENCY_SET coreDeps
     PRE_EXCLUDE_REGEXES ${WIN32_PRE_EXCLUDE_REGEXES}
