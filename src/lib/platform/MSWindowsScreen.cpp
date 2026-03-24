@@ -23,6 +23,7 @@
 #include "deskflow/KeyMap.h"
 #include "deskflow/ScreenException.h"
 #include "platform/MSWindowsClipboard.h"
+#include "platform/MSWindowsClipboardFileConverter.h"
 #include "platform/MSWindowsDesks.h"
 #include "platform/MSWindowsEventQueueBuffer.h"
 #include "platform/MSWindowsKeyState.h"
@@ -79,8 +80,10 @@
 HINSTANCE MSWindowsScreen::s_windowInstance = nullptr;
 MSWindowsScreen *MSWindowsScreen::s_screen = nullptr;
 
-MSWindowsScreen::MSWindowsScreen(bool isPrimary, bool useHooks, IEventQueue *events, bool enableLangSync)
-    : PlatformScreen(events),
+MSWindowsScreen::MSWindowsScreen(
+    bool isPrimary, bool useHooks, IEventQueue *events, bool enableLangSync, bool invertScrolling
+)
+    : PlatformScreen(events, invertScrolling),
       m_isPrimary(isPrimary),
       m_useHooks(useHooks),
       m_isOnScreen(m_isPrimary),
@@ -706,10 +709,11 @@ void MSWindowsScreen::fakeMouseRelativeMove(int32_t dx, int32_t dy) const
   m_desks->fakeMouseRelativeMove(dx, dy);
 }
 
-void MSWindowsScreen::fakeMouseWheel(ScrollDelta delta) const
+void MSWindowsScreen::fakeMouseWheel(int32_t xDelta, int32_t yDelta) const
 {
-  delta = applyScrollModifier(delta);
-  m_desks->fakeMouseWheel(delta.x, delta.y);
+  xDelta = mapClientScrollDirection(xDelta);
+  yDelta = mapClientScrollDirection(yDelta);
+  m_desks->fakeMouseWheel(xDelta, yDelta);
 }
 
 void MSWindowsScreen::updateKeys()
@@ -897,7 +901,8 @@ bool MSWindowsScreen::onPreDispatchPrimary(HWND, UINT message, WPARAM wParam, LP
     return onMouseMove(static_cast<int32_t>(wParam), static_cast<int32_t>(lParam));
 
   case DESKFLOW_MSG_MOUSE_WHEEL:
-    return onMouseWheel(static_cast<int32_t>(lParam), static_cast<int32_t>(wParam));
+    // XXX -- support x-axis scrolling
+    return onMouseWheel(0, static_cast<int32_t>(wParam));
 
   case DESKFLOW_MSG_PRE_WARP: {
     // save position to compute delta of next motion
@@ -945,14 +950,105 @@ bool MSWindowsScreen::onEvent(HWND, UINT msg, WPARAM wParam, LPARAM lParam, LRES
     return 0; // message processed
   }
 
+  case WM_RENDERFORMAT: {
+    // Windows delayed rendering: another app requested clipboard data
+    // wParam contains the format being requested
+    UINT requestedFormat = static_cast<UINT>(wParam);
+    LOG_INFO("WM_RENDERFORMAT received on main thread for format: %u (CF_HDROP=%u)", requestedFormat, CF_HDROP);
+
+    // NOTE: When ClipboardTransferThread is used (the preferred path), WM_RENDERFORMAT
+    // should be sent to its dedicated clipboard window, not the main thread.
+    // If we receive it here, it means we're using the legacy blocking path or
+    // something went wrong with ClipboardTransferThread setup.
+
+    if (requestedFormat == CF_HDROP && MSWindowsClipboardFileConverter::isDelayedRenderingActive()) {
+      LOG_WARN("WM_RENDERFORMAT for CF_HDROP received on MAIN THREAD (legacy blocking path)");
+      LOG_WARN("This may cause mouse/keyboard to freeze. Consider using ClipboardTransferThread.");
+
+      // Legacy blocking path - only used when ClipboardTransferThread is not available
+      // Check if we already have completed files (transfer finished)
+      if (MSWindowsClipboardFileConverter::hasCompletedFiles()) {
+        // Files already transferred, provide the CF_HDROP data
+        const auto &paths = MSWindowsClipboardFileConverter::getCompletedFilePaths();
+        LOG_INFO("providing CF_HDROP with %zu completed files:", paths.size());
+        for (size_t i = 0; i < paths.size(); ++i) {
+          LOG_INFO("  file[%zu]: %s", i, paths[i].c_str());
+        }
+
+        HANDLE hDrop = MSWindowsClipboardFileConverter::createHDropFromPaths(paths);
+        if (hDrop != nullptr) {
+          if (SetClipboardData(CF_HDROP, hDrop) != nullptr) {
+            LOG_INFO("successfully set CF_HDROP clipboard data");
+          } else {
+            LOG_ERR("SetClipboardData failed: error=%lu", GetLastError());
+            GlobalFree(hDrop);
+          }
+        } else {
+          LOG_ERR("failed to create CF_HDROP from completed files");
+        }
+      } else if (MSWindowsClipboardFileConverter::hasPendingFiles()) {
+        // Files not yet transferred, trigger the transfer and wait for completion
+        const auto &pending = MSWindowsClipboardFileConverter::getPendingFiles();
+        LOG_WARN("files not yet transferred, triggering BLOCKING transfer for %zu pending files:", pending.size());
+        for (size_t i = 0; i < pending.size(); ++i) {
+          LOG_INFO("  pending[%zu]: %s (size=%llu, isDir=%d)",
+                   i, pending[i].name.c_str(), pending[i].size, pending[i].isDir);
+        }
+
+        // Use synchronous transfer with message pumping to keep UI responsive
+        // WARNING: This blocks until all files are transferred or timeout occurs (up to 60 seconds)
+        if (MSWindowsClipboardFileConverter::triggerFileTransferAndWait(60000)) {
+          // Transfer completed successfully, now provide the CF_HDROP data
+          const auto &completedPaths = MSWindowsClipboardFileConverter::getCompletedFilePaths();
+          LOG_INFO("file transfer completed, providing CF_HDROP with %zu files:", completedPaths.size());
+          for (size_t i = 0; i < completedPaths.size(); ++i) {
+            LOG_INFO("  completed[%zu]: %s", i, completedPaths[i].c_str());
+          }
+
+          HANDLE hDrop = MSWindowsClipboardFileConverter::createHDropFromPaths(completedPaths);
+          if (hDrop != nullptr) {
+            if (SetClipboardData(CF_HDROP, hDrop) != nullptr) {
+              LOG_INFO("successfully set CF_HDROP clipboard data after transfer");
+            } else {
+              LOG_ERR("SetClipboardData failed after transfer: error=%lu", GetLastError());
+              GlobalFree(hDrop);
+            }
+          } else {
+            LOG_ERR("failed to create CF_HDROP from transferred files");
+          }
+        } else {
+          LOG_ERR("file transfer failed or timed out");
+        }
+      } else {
+        LOG_WARN("WM_RENDERFORMAT for CF_HDROP but no pending or completed files available");
+      }
+    } else if (requestedFormat == CF_HDROP) {
+      LOG_DEBUG("WM_RENDERFORMAT for CF_HDROP but delayed rendering not active");
+    }
+    *result = 0;
+    return true;
+  }
+
+  case WM_RENDERALLFORMATS: {
+    // Called when clipboard owner is being destroyed
+    // We should render all delayed formats now
+    LOG_DEBUG("WM_RENDERALLFORMATS received");
+    if (MSWindowsClipboardFileConverter::isDelayedRenderingActive()) {
+      // Clear delayed rendering state
+      MSWindowsClipboardFileConverter::setDelayedRenderingActive(false);
+      MSWindowsClipboardFileConverter::clearPendingFiles();
+    }
+    *result = 0;
+    return true;
+  }
+
   case WM_DISPLAYCHANGE:
     return onDisplayChange();
 
   /* On windows 10 we don't receive WM_POWERBROADCAST after sleep.
    We receive only WM_TIMECHANGE hence this message is used to resume.*/
   case WM_TIMECHANGE:
-    m_events->addEvent( //
-        Event(EventTypes::ScreenResume, getEventTarget(), nullptr, Event::EventFlags::DeliverImmediately)
+    m_events->addEvent(Event(EventTypes::ScreenResume, getEventTarget(), nullptr, Event::EventFlags::DeliverImmediately)
     );
     break;
 
@@ -1510,13 +1606,13 @@ ButtonID MSWindowsScreen::mapButtonFromEvent(WPARAM msg, LPARAM button) const
     switch (button) {
     case XBUTTON1:
       if (GetSystemMetrics(SM_CMOUSEBUTTONS) >= 4) {
-        return kButtonExtra0;
+        return kButtonExtra0 + 0;
       }
       break;
 
     case XBUTTON2:
       if (GetSystemMetrics(SM_CMOUSEBUTTONS) >= 5) {
-        return kButtonExtra1;
+        return kButtonExtra0 + 1;
       }
       break;
     }

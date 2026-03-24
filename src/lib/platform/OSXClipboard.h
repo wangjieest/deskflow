@@ -36,8 +36,19 @@ public:
 
   bool synchronize();
 
+  //! Get the pasteboard reference for advanced operations
+  PasteboardRef getPasteboardRef() const { return m_pboard; }
+
 private:
   void clearConverters();
+
+  //! Add file promise to pasteboard (for file list clipboard)
+  void addFilePromise(const std::string &data);
+
+  //! Promise keeper callback (called when paste happens)
+  static OSStatus promiseKeeperCallback(
+      PasteboardRef pasteboard, PasteboardItemID item,
+      CFStringRef flavorType, void *context);
 
 private:
   using ConverterList = std::vector<IOSXClipboardConverter *>;
@@ -45,6 +56,9 @@ private:
   mutable Time m_time;
   ConverterList m_converters;
   PasteboardRef m_pboard;
+
+  //! Track if we have set up the promise keeper
+  static bool s_promiseKeeperSet;
 };
 
 //! Clipboard format converter interface

@@ -32,10 +32,16 @@ if(WIN32)
     MSWindowsClipboardBitmapConverter.h
     MSWindowsClipboardFacade.cpp
     MSWindowsClipboardFacade.h
+    MSWindowsClipboardFileConverter.cpp
+    MSWindowsClipboardFileConverter.h
     MSWindowsClipboardHTMLConverter.cpp
     MSWindowsClipboardHTMLConverter.h
     MSWindowsClipboardUTF16Converter.cpp
     MSWindowsClipboardUTF16Converter.h
+    MSWindowsDataObject.cpp
+    MSWindowsDataObject.h
+    MSWindowsP2PStream.cpp
+    MSWindowsP2PStream.h
     MSWindowsDebugOutputter.cpp
     MSWindowsDebugOutputter.h
     MSWindowsDesks.cpp
@@ -72,6 +78,8 @@ elseif(APPLE)
     OSXClipboardAnyTextConverter.h
     OSXClipboardBMPConverter.cpp
     OSXClipboardBMPConverter.h
+    OSXClipboardFileConverter.cpp
+    OSXClipboardFileConverter.h
     OSXClipboardHTMLConverter.cpp
     OSXClipboardHTMLConverter.h
     OSXClipboardTextConverter.cpp
@@ -172,6 +180,12 @@ endif()
 
 # wayland.h is included to check for wayland support
 add_library(platform STATIC ${PLATFORM_SOURCES})
+
+# Find and link nlohmann_json for Windows clipboard JSON support
+if(WIN32)
+  find_package(nlohmann_json CONFIG REQUIRED)
+  target_link_libraries(platform PRIVATE nlohmann_json::nlohmann_json)
+endif()
 
 target_link_libraries(platform PUBLIC client ${libs})
 
