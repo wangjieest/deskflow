@@ -240,6 +240,9 @@ void MainWindow::setupControls()
     ui->btnSaveServerConfig->setIconSize(QSize(22, 22));
   }
   setStatusBar(m_statusBar);
+
+  // Add peer count button to status bar
+  m_statusBar->addPermanentWidget(m_btnPeers);
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -299,6 +302,7 @@ void MainWindow::connectSlots()
   }
 
   connect(ui->btnRestartCore, &QPushButton::clicked, this, &MainWindow::resetCore);
+  connect(ui->btnBecomeHost, &QPushButton::clicked, this, &MainWindow::becomeHost);
 
   connect(ui->lineHostname, &QLineEdit::returnPressed, ui->btnRestartCore, &QPushButton::click);
   connect(ui->lineHostname, &QLineEdit::textChanged, this, &MainWindow::remoteHostChanged);
@@ -688,8 +692,9 @@ void MainWindow::setupTrayIcon()
 {
   auto trayMenu = new QMenu(this);
   trayMenu->addActions(
-      {m_actionStartCore, m_actionRestartCore, m_actionStopCore, m_actionMinimize, m_actionRestore, m_actionTrayQuit}
+      {m_actionStartCore, m_actionRestartCore, m_actionStopCore, m_actionBecomeHost, m_actionMinimize, m_actionRestore, m_actionTrayQuit}
   );
+  trayMenu->insertSeparator(m_actionBecomeHost);
   trayMenu->insertSeparator(m_actionMinimize);
   trayMenu->insertSeparator(m_actionTrayQuit);
   m_trayIcon->setContextMenu(trayMenu);

@@ -240,9 +240,9 @@ void SettingsDialog::accept()
   Settings::setValue(Settings::Core::ScreenEnterCommand, ui->lineCommandEnter->text());
   Settings::setValue(Settings::Core::ScreenExitCommand, ui->lineCommandExit->text());
 
-  // AutoDeskflow settings - saved to config even if UI controls not yet added
-  // GroupToken and EnableFileTransfer are managed through Settings directly
-  // UI widgets will be added to SettingsDialog.ui in a future update
+  // AutoDeskflow settings
+  Settings::setValue(Settings::Core::GroupToken, ui->lineGroupToken->text());
+  Settings::setValue(Settings::Core::EnableFileTransfer, ui->cbEnableFileTransfer->isChecked());
 
   Settings::ProcessMode mode;
   if (ui->groupService->isChecked())
@@ -270,6 +270,10 @@ void SettingsDialog::loadFromConfig()
   ui->cbRunExitCommand->setChecked(Settings::value(Settings::Core::EnableExitCommand).toBool());
   ui->lineCommandEnter->setText(Settings::value(Settings::Core::ScreenEnterCommand).toString());
   ui->lineCommandExit->setText(Settings::value(Settings::Core::ScreenExitCommand).toString());
+
+  // AutoDeskflow settings
+  ui->lineGroupToken->setText(Settings::value(Settings::Core::GroupToken).toString());
+  ui->cbEnableFileTransfer->setChecked(Settings::value(Settings::Core::EnableFileTransfer).toBool());
 
   const auto processMode = Settings::value(Settings::Core::ProcessMode).value<Settings::ProcessMode>();
   ui->groupService->setChecked(processMode == Settings::ProcessMode::Service);
@@ -383,6 +387,10 @@ void SettingsDialog::updateControls()
   ui->cbRunExitCommand->setEnabled(writable);
   ui->lineCommandEnter->setEnabled(writable && ui->cbRunEnterCommand->isChecked());
   ui->lineCommandExit->setEnabled(writable && ui->cbRunExitCommand->isChecked());
+
+  // AutoDeskflow settings
+  ui->lineGroupToken->setEnabled(writable);
+  ui->cbEnableFileTransfer->setEnabled(writable);
 
   // Portable mode only ever applies to Windows.
   // Daemon options should only be available on Windows when *not* in portable mode.
