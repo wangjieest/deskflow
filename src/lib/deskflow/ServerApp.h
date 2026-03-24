@@ -66,6 +66,7 @@ public:
   // Regular functions
   //
 
+  QString currentConfig() const;
   void reloadConfig();
   void forceReconnect();
   void resetServer();
