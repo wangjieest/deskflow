@@ -683,13 +683,21 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
         }
 
         // Check if deferred mode - send metadata instead of full data
-        if (clipboard.m_meta.deferred) {
+        // Only use deferred mode if the client supports it
+        if (clipboard.m_meta.deferred &&
+            (m_active->capabilities() & kCapDeferredClipboard)) {
           LOG_DEBUG(
               "sending clipboard %d metadata to \"%s\" (deferred mode, session %llu)", id, m_active->getName().c_str(),
               clipboard.m_sessionId
           );
           m_active->setClipboardMeta(id, clipboard.m_meta);
           continue;
+        } else if (clipboard.m_meta.deferred) {
+          LOG_DEBUG(
+              "client \"%s\" does not support deferred clipboard (caps=0x%x), sending full data",
+              m_active->getName().c_str(), m_active->capabilities()
+          );
+          // Fall through to send full data
         }
 
         // Check size threshold
@@ -1734,7 +1742,7 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
     client->setClipboardDirty(id, client != sender);
   }
 
-  if (useDeferredMode) {
+  if (useDeferredMode && (m_active->capabilities() & kCapDeferredClipboard)) {
     // Send only metadata - client will request actual data when pasting
     m_active->setClipboardMeta(id, clipboard.m_meta);
     if (format == IClipboard::Format::FileList) {
@@ -1847,6 +1855,14 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
     }
 #endif
     // Deferred mode - don't send full data here, client will request via P2P when pasting
+  } else if (useDeferredMode) {
+    // Client doesn't support deferred clipboard - fall back to full data
+    LOG_DEBUG(
+        "client \"%s\" does not support deferred clipboard (caps=0x%x), falling back to full send",
+        m_active->getName().c_str(), m_active->capabilities()
+    );
+    m_active->setClipboard(id, &clipboard.m_clipboard);
+    markClientHasClipboardData(m_active, id);
   } else {
     // Send full clipboard data immediately (for all formats including Text, HTML, etc.)
     m_active->setClipboard(id, &clipboard.m_clipboard);
