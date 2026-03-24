@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "deskflow/ClipboardMeta.h"
 #include "deskflow/IClient.h"
 
 namespace deskflow {
@@ -63,6 +64,7 @@ public:
   void enter(int32_t xAbs, int32_t yAbs, uint32_t seqNum, KeyModifierMask mask, bool forScreensaver) override = 0;
   bool leave() override = 0;
   void setClipboard(ClipboardID, const IClipboard *) override = 0;
+  virtual void setClipboardMeta(ClipboardID, const ClipboardMeta &) = 0;
   void grabClipboard(ClipboardID) override = 0;
   void setClipboardDirty(ClipboardID, bool) override = 0;
   void keyDown(KeyID, KeyModifierMask, KeyButton, const std::string &) override = 0;

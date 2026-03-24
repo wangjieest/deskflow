@@ -243,6 +243,13 @@ void ClientProxy1_0::setClipboard(ClipboardID id, const IClipboard *clipboard)
   // ignore -- deprecated in protocol 1.0
 }
 
+void ClientProxy1_0::setClipboardMeta(ClipboardID id, const ClipboardMeta &meta)
+{
+  // ignore -- not supported in protocol versions < 1.8
+  // Fall back to sending full clipboard data for older clients
+  LOG_DEBUG("setClipboardMeta not supported in protocol 1.0, ignoring");
+}
+
 void ClientProxy1_0::grabClipboard(ClipboardID id)
 {
   LOG_DEBUG("send grab clipboard %d to \"%s\"", id, getName().c_str());

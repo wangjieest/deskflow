@@ -115,14 +115,26 @@ bool PrimaryClient::leave()
 
 void PrimaryClient::setClipboard(ClipboardID id, const IClipboard *clipboard)
 {
+  LOG_DEBUG("PrimaryClient::setClipboard: id=%d, dirty=%d", id, m_clipboardDirty[id]);
+
   // ignore if this clipboard is already clean
   if (m_clipboardDirty[id]) {
     // this clipboard is now clean
     m_clipboardDirty[id] = false;
 
     // set clipboard
+    LOG_INFO("PrimaryClient: setting clipboard %d on primary screen", id);
     m_screen->setClipboard(id, clipboard);
+  } else {
+    LOG_DEBUG("PrimaryClient: skipping clipboard %d (not dirty)", id);
   }
+}
+
+void PrimaryClient::setClipboardMeta(ClipboardID id, const ClipboardMeta &meta)
+{
+  // Primary client (server's own screen) doesn't use deferred mode for itself
+  // This is only relevant for remote clients
+  LOG_DEBUG("setClipboardMeta on primary client ignored (id=%d, size=%llu)", id, meta.totalSize);
 }
 
 void PrimaryClient::grabClipboard(ClipboardID id)

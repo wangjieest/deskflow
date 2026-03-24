@@ -10,6 +10,7 @@
 
 #include "deskflow/IClient.h"
 
+#include "HelloBack.h"
 #include "base/Event.h"
 #include "base/EventTypes.h"
 #include "common/Enums.h"
@@ -17,6 +18,7 @@
 #include "net/NetworkAddress.h"
 
 #include <climits>
+#include <memory>
 #include <string>
 
 class Event;
@@ -33,6 +35,9 @@ class IStream;
 class IEventQueue;
 class Thread;
 class TCPSocket;
+class SocketMultiplexer;
+class ClipboardTransferThread;
+class Clipboard;
 
 //! Deskflow client
 /*!
@@ -93,7 +98,7 @@ public:
   */
   Client(
       IEventQueue *events, const std::string &name, const NetworkAddress &address, ISocketFactory *socketFactory,
-      deskflow::Screen *screen
+      deskflow::Screen *screen, SocketMultiplexer *socketMultiplexer = nullptr
   );
   Client(Client const &) = delete;
   Client(Client &&) = delete;
@@ -111,7 +116,6 @@ public:
   the client is trying to connect or is already connected.
   */
   void connect(size_t addressIndex = 0);
-  void setServerAddress(const NetworkAddress &address);
 
   //! Disconnect
   /*!
@@ -131,6 +135,19 @@ public:
   Notifies the client that the connection handshake has completed.
   */
   virtual void handshakeComplete();
+
+  //! Request file from server
+  /*!
+  Requests a file from the server. The file will be transferred and saved locally.
+  \param filePath the path of the file on the server
+  \param relativePath the relative path for preserving directory structure (optional)
+  \param isDir true if this is a directory entry
+  \param batchTransferId optional batch ID for grouping related files in same directory
+  \return request ID for tracking the transfer
+  */
+  uint32_t requestFile(
+      const std::string &filePath, const std::string &relativePath = "", bool isDir = false, uint32_t batchTransferId = 0
+  );
 
   //@}
   //! @name accessors
@@ -155,6 +172,16 @@ public:
   to connect) to.
   */
   NetworkAddress getServerAddress() const;
+
+  //! Get ClipboardTransferThread for point-to-point file transfer
+  /*!
+  Returns the ClipboardTransferThread used for file transfers.
+  May return nullptr if not initialized.
+  */
+  ClipboardTransferThread *getClipboardTransferThread() const
+  {
+    return m_clipboardTransferThread;
+  }
 
   //! Return last resolved adresses count
   size_t getLastResolvedAddressesCount() const
@@ -195,6 +222,8 @@ private:
   void sendClipboard(ClipboardID);
   void sendEvent(deskflow::EventTypes);
   void sendConnectionFailedEvent(const char *msg);
+  void startFileTransferServer(const std::string &fileListJson);
+  bool injectSourceInfoToClipboard(const IClipboard &src, Clipboard &dst);
   void setupConnecting();
   void setupConnection();
   void setupScreen();
@@ -245,4 +274,10 @@ private:
   size_t m_maximumClipboardReceiveSize = 0;
   size_t m_maximumClipboardSize = INT_MAX;
   size_t m_resolvedAddressesCount = 0;
+  std::unique_ptr<deskflow::client::HelloBack> m_pHelloBack;
+
+  // Point-to-point file transfer via ClipboardTransferThread
+  // ClipboardTransferThread runs in QThread with proper TLS initialization
+  ClipboardTransferThread *m_clipboardTransferThread = nullptr;
+  uint64_t m_currentFileSessionId = 0;
 };
