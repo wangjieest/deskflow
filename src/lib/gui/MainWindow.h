@@ -17,6 +17,7 @@
 
 #include "VersionChecker.h"
 #include "config/ServerConfig.h"
+#include "discovery/DiscoveryService.h"
 #include "gui/core/CoreProcess.h"
 #include "gui/core/NetworkMonitor.h"
 #include "net/Fingerprint.h"
@@ -144,6 +145,18 @@ private:
   void updateTimeoutDelay(int newDelay);
   void setHelpFilePath();
   void showHelpViewer() const;
+  void checkFileTransfer(const QString &line);
+  void initDiscoveryService();
+  void onPeerDiscovered(const deskflow::gui::discovery::PeerNode &peer);
+  void onPeerLost(const QString &nodeId);
+  void onShouldYieldMaster(const QString &winnerNodeId, const QString &winnerName);
+  void onShouldConnectToMaster(const QString &ip, uint16_t port);
+  void startClientConnection(const QString &ip, uint16_t port);
+  void onDiscoveryRoleChanged(deskflow::gui::discovery::Role role);
+  void becomeHost();
+  void startServerAsMaster();
+  void addDiscoveredPeersToServerConfig();
+  void updatePeerCount();
 
   bool canRunCore() const;
 
@@ -211,4 +224,17 @@ private:
   QStringList m_serverStartIPs;
   QString m_serverStartSuggestedIP;
   QUrl m_helpPath;
+
+  // AutoDeskflow: Become Host
+  bool m_clientErrorShownOnce = false;
+  int m_clientRetryCount = 0;
+  static constexpr int kMaxClientRetries = 3;
+  static constexpr int kAutoModeSwitchMaxRetries = 5;
+  QTimer *m_clientRetryTimer = nullptr;
+  QAction *m_actionBecomeHost = nullptr;
+  deskflow::gui::discovery::DiscoveryService *m_discoveryService = nullptr;
+  QPushButton *m_btnPeers = nullptr;
+  bool m_autoModeSwitch = false;
+  int m_autoModeSwitchRetries = 0;
+  bool m_yieldingToMaster = false;
 };
