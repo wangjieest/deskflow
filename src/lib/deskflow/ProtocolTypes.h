@@ -1162,6 +1162,32 @@ extern const char *const kMsgQInfo;
 /** @} */ // end of protocol_queries group
 
 /**
+ * @defgroup protocol_filetransfer AutoDeskflow File Transfer Messages
+ * @brief Deferred clipboard and point-to-point file transfer
+ * @{
+ */
+
+/// Clipboard metadata (deferred mode), Server -> Client: "DCMT%1i%s"
+extern const char *const kMsgDClipboardMeta;
+
+/// Request clipboard data, Client -> Server: "QCLD%1i%s"
+extern const char *const kMsgQClipboardData;
+
+/// Request file content, Client -> Server: "QFIL%4i%s"
+extern const char *const kMsgQFileRequest;
+
+/// Request file content (reverse), Server -> Client: "SFIL%4i%s"
+extern const char *const kMsgSFileRequest;
+
+/// File data chunk (bidirectional): "DFCH%4i%1i%s"
+extern const char *const kMsgDFileChunk;
+
+/// File transfer port notification, Server -> Client: "DFTP%4i%2i"
+extern const char *const kMsgDFileTransferPort;
+
+/** @} */ // end of protocol_filetransfer group
+
+/**
  * @defgroup protocol_errors Error Messages
  * @brief Protocol error and failure notifications
  * @{
