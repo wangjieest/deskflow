@@ -68,6 +68,11 @@ static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
 #pragma mark - Socket Communication
 
 - (NSDictionary *)queryStateViaSocket {
+  // Fast path: if socket file doesn't exist, main app isn't running
+  if (access(kSocketPath, F_OK) != 0) {
+    return nil;
+  }
+
   int fd = socket(AF_UNIX, SOCK_STREAM, 0);
   if (fd < 0) return nil;
 
@@ -84,10 +89,10 @@ static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
   const char *cmd = "GET_STATE";
   write(fd, cmd, strlen(cmd));
 
-  // Set read timeout
+  // Short read timeout - this should be very fast for local socket
   struct timeval tv;
-  tv.tv_sec = 1;
-  tv.tv_usec = 0;
+  tv.tv_sec = 0;
+  tv.tv_usec = 100000; // 100ms
   setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
   char buf[8192];
@@ -140,13 +145,14 @@ static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
 #pragma mark - State Query
 
 - (NSDictionary *)loadClipboardState {
-  // Cache for 500ms to avoid excessive IPC
+  // Use notification-pushed cache if fresh (< 2s old)
+  // This avoids any IPC on right-click in the common case
   if (_cachedState && _lastStateCheck &&
-      [[NSDate date] timeIntervalSinceDate:_lastStateCheck] < 0.5) {
+      [[NSDate date] timeIntervalSinceDate:_lastStateCheck] < 2.0) {
     return _cachedState;
   }
 
-  // Primary: query via socket
+  // Cache stale or missing: query via socket for fresh state
   NSDictionary *state = [self queryStateViaSocket];
   if (state) {
     _cachedState = state;
@@ -154,7 +160,7 @@ static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
     return state;
   }
 
-  // Fallback: use last notification state
+  // Socket unavailable: use last notification-pushed state (may be stale)
   return _cachedState;
 }
 
