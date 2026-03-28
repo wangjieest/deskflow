@@ -1,0 +1,237 @@
+/*
+ * Deskflow -- mouse and keyboard sharing utility
+ * SPDX-FileCopyrightText: (C) 2025 AutoDeskflow Developers
+ * SPDX-License-Identifier: GPL-2.0-only WITH LicenseRef-OpenSSL-Exception
+ */
+
+#import "FinderSync.h"
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+
+static NSString *const kClipboardUpdateNotification = @"org.deskflow.clipboardUpdate";
+static NSString *const kPasteRequestNotification = @"org.deskflow.pasteRequest";
+static NSString *const kRequestStateNotification = @"org.deskflow.requestClipboardState";
+static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
+
+@implementation DeskflowFinderSync {
+  NSImage *_toolbarIcon;
+  NSDictionary *_cachedState;
+  NSDate *_lastStateCheck;
+}
+
+#pragma mark - Lifecycle
+
+- (instancetype)init {
+  self = [super init];
+  if (self) {
+    [FIFinderSyncController defaultController].directoryURLs =
+        [NSSet setWithObject:[NSURL fileURLWithPath:@"/"]];
+
+    _toolbarIcon = [NSImage imageNamed:NSImageNameNetwork];
+    [[FIFinderSyncController defaultController] setToolbarItemImage:_toolbarIcon];
+    [[FIFinderSyncController defaultController]
+        setToolbarItemName:@"Deskflow Paste"
+                   toolTip:@"Paste files from remote Deskflow machine"];
+
+    // Listen for clipboard updates from main app
+    [[NSDistributedNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(handleClipboardUpdate:)
+               name:kClipboardUpdateNotification
+             object:nil];
+
+    // Request current state from main app on cold start
+    [[NSDistributedNotificationCenter defaultCenter]
+        postNotificationName:kRequestStateNotification
+                      object:nil
+                    userInfo:nil
+         deliverImmediately:YES];
+
+    NSLog(@"[DeskflowFinderSync] initialized, monitoring /");
+  }
+  return self;
+}
+
+- (void)dealloc {
+  [[NSDistributedNotificationCenter defaultCenter] removeObserver:self];
+}
+
+#pragma mark - Notification Handler
+
+- (void)handleClipboardUpdate:(NSNotification *)note {
+  _cachedState = note.userInfo;
+  _lastStateCheck = [NSDate date];
+  NSLog(@"[DeskflowFinderSync] clipboard update: %@", note.userInfo);
+}
+
+#pragma mark - Socket Communication
+
+- (NSDictionary *)queryStateViaSocket {
+  int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+  if (fd < 0) return nil;
+
+  struct sockaddr_un addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sun_family = AF_UNIX;
+  strncpy(addr.sun_path, kSocketPath, sizeof(addr.sun_path) - 1);
+
+  if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    close(fd);
+    return nil;
+  }
+
+  const char *cmd = "GET_STATE";
+  write(fd, cmd, strlen(cmd));
+
+  // Set read timeout
+  struct timeval tv;
+  tv.tv_sec = 1;
+  tv.tv_usec = 0;
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+  char buf[8192];
+  ssize_t n = read(fd, buf, sizeof(buf) - 1);
+  close(fd);
+
+  if (n <= 0) return nil;
+  buf[n] = '\0';
+
+  NSData *data = [NSData dataWithBytes:buf length:n];
+  NSError *error = nil;
+  NSDictionary *state = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
+  if (error) {
+    NSLog(@"[DeskflowFinderSync] socket state parse error: %@", error);
+    return nil;
+  }
+  return state;
+}
+
+- (BOOL)sendPasteViaSocket:(NSString *)targetPath {
+  int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+  if (fd < 0) return NO;
+
+  struct sockaddr_un addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sun_family = AF_UNIX;
+  strncpy(addr.sun_path, kSocketPath, sizeof(addr.sun_path) - 1);
+
+  if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    close(fd);
+    return NO;
+  }
+
+  NSString *cmd = [NSString stringWithFormat:@"PASTE:%@", targetPath];
+  const char *cmdStr = [cmd UTF8String];
+  write(fd, cmdStr, strlen(cmdStr));
+
+  // Wait for ack
+  char buf[16];
+  struct timeval tv;
+  tv.tv_sec = 2;
+  tv.tv_usec = 0;
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  read(fd, buf, sizeof(buf));
+  close(fd);
+
+  return YES;
+}
+
+#pragma mark - State Query
+
+- (NSDictionary *)loadClipboardState {
+  // Cache for 500ms to avoid excessive IPC
+  if (_cachedState && _lastStateCheck &&
+      [[NSDate date] timeIntervalSinceDate:_lastStateCheck] < 0.5) {
+    return _cachedState;
+  }
+
+  // Primary: query via socket
+  NSDictionary *state = [self queryStateViaSocket];
+  if (state) {
+    _cachedState = state;
+    _lastStateCheck = [NSDate date];
+    return state;
+  }
+
+  // Fallback: use last notification state
+  return _cachedState;
+}
+
+- (BOOL)hasPendingFiles {
+  NSDictionary *state = [self loadClipboardState];
+  if (!state) return NO;
+  return [state[@"hasPendingFiles"] boolValue];
+}
+
+- (NSUInteger)pendingFileCount {
+  NSDictionary *state = [self loadClipboardState];
+  if (!state) return 0;
+  NSArray *files = state[@"files"];
+  if (files) return files.count;
+  NSNumber *count = state[@"fileCount"];
+  return count ? [count unsignedIntegerValue] : 0;
+}
+
+#pragma mark - Context Menu
+
+- (NSMenu *)menuForMenuKind:(FIMenuKind)menuKind {
+  NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Deskflow"];
+
+  if (![self hasPendingFiles]) {
+    return menu;
+  }
+
+  NSUInteger count = [self pendingFileCount];
+  NSString *title;
+  if (count <= 1) {
+    title = @"Deskflow Paste";
+  } else {
+    title = [NSString stringWithFormat:@"Deskflow Paste (%lu files)",
+                                       (unsigned long)count];
+  }
+
+  NSMenuItem *item =
+      [[NSMenuItem alloc] initWithTitle:title
+                                 action:@selector(pasteFromDeskflow:)
+                          keyEquivalent:@""];
+  item.image = _toolbarIcon;
+  [menu addItem:item];
+
+  return menu;
+}
+
+#pragma mark - Paste Action
+
+- (void)pasteFromDeskflow:(id)sender {
+  NSURL *targetURL = [[FIFinderSyncController defaultController] targetedURL];
+
+  if (!targetURL) {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(
+        NSDesktopDirectory, NSUserDomainMask, YES);
+    targetURL = [NSURL fileURLWithPath:paths.firstObject];
+  }
+
+  NSString *targetPath = [targetURL path];
+  NSLog(@"[DeskflowFinderSync] paste to: %@", targetPath);
+
+  // Primary: send via socket (low latency)
+  if ([self sendPasteViaSocket:targetPath]) {
+    NSLog(@"[DeskflowFinderSync] paste request sent via socket");
+    return;
+  }
+
+  // Fallback: notification
+  NSDictionary *userInfo = @{
+    @"targetDirectory" : targetPath,
+    @"timestamp" : @([[NSDate date] timeIntervalSince1970])
+  };
+  [[NSDistributedNotificationCenter defaultCenter]
+      postNotificationName:kPasteRequestNotification
+                    object:nil
+                  userInfo:userInfo
+       deliverImmediately:YES];
+  NSLog(@"[DeskflowFinderSync] paste request sent via notification (fallback)");
+}
+
+@end

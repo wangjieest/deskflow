@@ -109,6 +109,10 @@ elseif(APPLE)
     OSXScreenSaverControl.h
     OSXScreenSaverUtil.h
     OSXScreenSaverUtil.m
+    OSXUchrKeyResource.cpp
+    OSXUchrKeyResource.h
+    OSXPasteboardBridge.h
+    OSXPasteboardBridge.mm
   )
 elseif(UNIX)
   set(PLATFORM_SOURCES
