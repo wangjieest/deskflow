@@ -172,7 +172,8 @@ public:
    */
   void requestFiles(
       const std::string &sourceAddr, uint16_t port, uint64_t sessionId,
-      const std::vector<ClipboardTransferFileInfo> &files, BatchCompleteCallback callback
+      const std::vector<ClipboardTransferFileInfo> &files, BatchCompleteCallback callback,
+      const std::string &destFolder = ""
   );
 
   /**
@@ -276,6 +277,7 @@ private:
     std::string sourceAddr;
     uint16_t port = 0;
     std::string remotePath;
+    std::string destFolder;
     std::vector<ClipboardTransferFileInfo> files;
     DataReceivedCallback callback;
     BatchCompleteCallback batchCallback;

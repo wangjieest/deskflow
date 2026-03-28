@@ -70,7 +70,15 @@ public:
   void closeAll();
 
   /**
-   * @brief Get the temporary directory for downloaded files
+   * @brief Set the destination folder for downloaded files
+   *
+   * When set, files are written directly to this folder instead of
+   * the system temp directory. Call with empty string to reset.
+   */
+  void setDestinationFolder(const std::string &folder);
+
+  /**
+   * @brief Get the current download directory (destination or temp)
    */
   std::string getTempDirectory() const;
 
@@ -129,6 +137,7 @@ private:
   // Request ID counter
   uint32_t m_nextRequestId = 1;
 
-  // Temp directory
+  // Destination/temp directory
+  std::string m_destFolder;
   mutable std::string m_tempDir;
 };

@@ -290,7 +290,8 @@ void ClipboardTransferThread::handleRequestFile(const Message &msg)
 void ClipboardTransferThread::handleRequestFiles(const Message &msg)
 {
   LOG_INFO(
-      "[ClipboardTransfer] requesting %zu files from %s:%u", msg.files.size(), msg.sourceAddr.c_str(), msg.port
+      "[ClipboardTransfer] requesting %zu files from %s:%u to %s", msg.files.size(), msg.sourceAddr.c_str(), msg.port,
+      msg.destFolder.empty() ? "(temp)" : msg.destFolder.c_str()
   );
 
   if (msg.files.empty()) {
@@ -302,19 +303,26 @@ void ClipboardTransferThread::handleRequestFiles(const Message &msg)
 
   m_pendingRequests++;
 
+  // Set destination folder on the client so files go directly there
+  ClipboardTransferClient *client = m_worker ? m_worker->getClient() : nullptr;
+  if (client && !msg.destFolder.empty()) {
+    client->setDestinationFolder(msg.destFolder);
+  }
+
   // Track completion
   auto remaining = std::make_shared<std::atomic<size_t>>(msg.files.size());
   auto success = std::make_shared<std::atomic<bool>>(true);
   auto paths = std::make_shared<std::vector<std::string>>();
   auto pathsMutex = std::make_shared<std::mutex>();
   auto batchCallback = msg.batchCallback;
+  // Capture destFolder to reset client after batch completes
+  auto destFolder = msg.destFolder;
 
-  ClipboardTransferClient *client = m_worker ? m_worker->getClient() : nullptr;
   for (const auto &file : msg.files) {
     if (client) {
       client->requestFile(
           msg.sourceAddr, msg.port, msg.sessionId, file.path,
-          [this, remaining, success, paths, pathsMutex, batchCallback](
+          [this, client, remaining, success, paths, pathsMutex, batchCallback, destFolder](
               bool fileSuccess, const std::string &localPath, const std::string &error
           ) {
             if (fileSuccess) {
@@ -327,7 +335,11 @@ void ClipboardTransferThread::handleRequestFiles(const Message &msg)
 
             size_t left = --(*remaining);
             if (left == 0) {
-              // All files done
+              // All files done - reset destination folder to temp
+              if (client && !destFolder.empty()) {
+                client->setDestinationFolder("");
+              }
+
               m_pendingRequests--;
               m_pendingCondition.notify_all();
 
@@ -401,7 +413,7 @@ void ClipboardTransferThread::requestFile(
 
 void ClipboardTransferThread::requestFiles(
     const std::string &sourceAddr, uint16_t port, uint64_t sessionId, const std::vector<ClipboardTransferFileInfo> &files,
-    BatchCompleteCallback callback
+    BatchCompleteCallback callback, const std::string &destFolder
 )
 {
   Message msg;
@@ -411,6 +423,7 @@ void ClipboardTransferThread::requestFiles(
   msg.sessionId = sessionId;
   msg.files = files;
   msg.batchCallback = callback;
+  msg.destFolder = destFolder;
   postMessage(std::move(msg));
 }
 
@@ -490,7 +503,7 @@ std::vector<std::string> ClipboardTransferThread::requestFilesAndWait(const std:
   std::mutex waitMutex;
   std::condition_variable waitCondition;
 
-  // Request files through the transfer thread
+  // Request files through the transfer thread, downloading directly to destFolder
   requestFiles(
       sourceAddr, sourcePort, sessionId, files,
       [completedPaths, done, success, &waitCondition](bool transferSuccess, const std::vector<std::string> &paths) {
@@ -500,7 +513,8 @@ std::vector<std::string> ClipboardTransferThread::requestFilesAndWait(const std:
         }
         done->store(true);
         waitCondition.notify_all();
-      }
+      },
+      destFolder
   );
 
   // Wait for completion
