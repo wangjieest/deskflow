@@ -32,6 +32,7 @@
 #if WINAPI_CARBON
 #include "deskflow/ClipboardTransferThread.h"
 #include "platform/OSXClipboardFileConverter.h"
+#include "platform/OSXPasteboardBridge.h"
 #endif
 
 #include <cstring>
@@ -735,6 +736,9 @@ void ServerProxy::setClipboardMeta()
             "[ServerProxy] ClipboardTransferThread configured with %zu files from %s:%u",
             files.size(), meta.sourceAddress.c_str(), meta.sourcePort
         );
+
+        // Publish pending files to Finder Sync Extension via shared state file
+        OSXPasteboardBridge::publishPendingFiles(meta.metadata, static_cast<int>(parsedFiles.size()));
       } else {
         LOG_WARN("[ServerProxy] ClipboardTransferThread not available, will use legacy transfer");
       }
@@ -1431,6 +1435,7 @@ void ServerProxy::fileChunkReceived()
 
 #ifdef __APPLE__
 #include "platform/OSXClipboardFileConverter.h"
+#include "platform/OSXPasteboardBridge.h"
 #include "platform/OSXPasteboardPeeker.h"
 #endif
 
@@ -1454,6 +1459,9 @@ void ServerProxy::updateClipboardWithCompletedFiles()
   // Signal that transfer is complete (wakes up promise keeper callback if waiting)
   OSXClipboardFileConverter::signalTransferComplete();
   LOG_INFO("macOS: signaled file transfer complete");
+
+  // Clear Finder Extension pending state now that files are transferred
+  OSXPasteboardBridge::clearPendingFiles();
 
   // Also update the pasteboard directly with file URLs
   updatePasteboardWithFiles(cPaths.data(), static_cast<int>(cPaths.size()));

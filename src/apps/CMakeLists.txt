@@ -40,3 +40,7 @@ set(WIN32_POST_EXCLUDE_REGEXES ".*system32.*")
 add_subdirectory(deskflow-core)
 add_subdirectory(deskflow-daemon) #Only used on windows
 add_subdirectory(deskflow-gui)
+
+if(APPLE)
+  add_subdirectory(deskflow-paste-ext)
+endif()

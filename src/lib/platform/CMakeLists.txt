@@ -99,6 +99,8 @@ elseif(APPLE)
     OSXScreenSaverUtil.m
     OSXUchrKeyResource.cpp
     OSXUchrKeyResource.h
+    OSXPasteboardBridge.h
+    OSXPasteboardBridge.mm
   )
 elseif(UNIX)
   set(PLATFORM_SOURCES

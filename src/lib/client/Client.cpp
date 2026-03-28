@@ -33,6 +33,8 @@
 
 #if WINAPI_CARBON
 #include "platform/OSXClipboardFileConverter.h"
+#include "platform/OSXPasteboardBridge.h"
+#include "platform/OSXPasteboardPeeker.h"
 #endif
 
 #include <QMetaEnum>
@@ -78,6 +80,47 @@ Client::Client(
         cleanupConnection();
       }
   ));
+
+#if WINAPI_CARBON
+  // Start listening for paste requests from the Finder Sync Extension.
+  // When user right-clicks in Finder and selects "Deskflow Paste",
+  // the extension posts a notification with the target directory.
+  OSXPasteboardBridge::startListening([this](const std::string &targetDir) {
+    LOG_INFO("Finder paste request received, target: %s", targetDir.c_str());
+
+    if (!m_clipboardTransferThread || !m_clipboardTransferThread->isRunning()) {
+      LOG_WARN("clipboard transfer thread not available for Finder paste");
+      return;
+    }
+
+    if (!m_clipboardTransferThread->hasPendingFilesForPaste()) {
+      LOG_WARN("no pending files for Finder paste");
+      return;
+    }
+
+    // Request files and wait (up to 60s), then update pasteboard
+    std::vector<std::string> paths =
+        m_clipboardTransferThread->requestFilesAndWait(targetDir, 60000);
+
+    if (!paths.empty()) {
+      LOG_INFO("Finder paste: %zu file(s) transferred to %s", paths.size(), targetDir.c_str());
+
+      // Update macOS pasteboard with actual file URLs
+      std::vector<const char *> cPaths;
+      cPaths.reserve(paths.size());
+      for (const auto &p : paths) {
+        cPaths.push_back(p.c_str());
+      }
+      updatePasteboardWithFiles(cPaths.data(), static_cast<int>(cPaths.size()));
+
+      // Clear pending state
+      OSXPasteboardBridge::clearPendingFiles();
+      OSXClipboardFileConverter::clearPendingFiles();
+    } else {
+      LOG_ERR("Finder paste: file transfer failed or timed out");
+    }
+  });
+#endif
 }
 
 Client::~Client()
@@ -90,6 +133,11 @@ Client::~Client()
   cleanupConnecting();
   cleanupConnection();
   delete m_socketFactory;
+
+#if WINAPI_CARBON
+  OSXPasteboardBridge::stopListening();
+  OSXPasteboardBridge::clearPendingFiles();
+#endif
 
   // Clean up clipboard transfer thread
   if (m_clipboardTransferThread) {

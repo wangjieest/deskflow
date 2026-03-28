@@ -600,6 +600,14 @@ A bound IP is now invalid, you may need to restart the server.</source>
 %1</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Become &amp;Host</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Take control as the host (Ctrl+Alt+H)</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>NewScreenWidget</name>
@@ -1374,6 +1382,30 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>Reset to default values</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>AutoDeskflow</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Group Token</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Shared secret for peer discovery</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Nodes with the same token will auto-discover each other. Leave empty to use your username.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Enable file transfer via clipboard</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Allow copying and pasting files between machines (deferred transfer on paste)</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
