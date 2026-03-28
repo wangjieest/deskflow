@@ -115,8 +115,31 @@ void ClipboardTransferClient::closeAll()
   m_connections.clear();
 }
 
+void ClipboardTransferClient::setDestinationFolder(const std::string &folder)
+{
+  m_destFolder = folder;
+  // Reset cached temp dir so getTempDirectory() picks up the new folder
+  m_tempDir.clear();
+
+  if (!folder.empty()) {
+    LOG_INFO("[ClipboardTransferClient] destination folder set: %s", folder.c_str());
+  } else {
+    LOG_DEBUG("[ClipboardTransferClient] destination folder cleared, using temp");
+  }
+}
+
 std::string ClipboardTransferClient::getTempDirectory() const
 {
+  // Use explicit destination folder if set
+  if (!m_destFolder.empty()) {
+    std::string dir = m_destFolder;
+    if (dir.back() != '/' && dir.back() != '\\') {
+      dir += '/';
+    }
+    mkdir(dir.c_str(), 0755);
+    return dir;
+  }
+
   if (!m_tempDir.empty()) {
     return m_tempDir;
   }
