@@ -771,6 +771,7 @@ void MainWindow::setTrayIcon()
 void MainWindow::handleLogLine(const QString &line)
 {
   m_logDock->appendLine(line);
+  checkFileTransfer(line);
 }
 
 void MainWindow::handleUnrecognisedClient(const QString &clientName)
@@ -1530,7 +1531,63 @@ void MainWindow::onDiscoveryRoleChanged(deskflow::gui::discovery::Role role)
 
 void MainWindow::checkFileTransfer(const QString &line)
 {
-  // Placeholder for file transfer progress parsing
-  // Will be implemented in later stages
-  Q_UNUSED(line)
+  // Parse structured clipboard metadata log:
+  // "CLIPBOARD_META: type=file, items=3, size=12345678, source=MacBook, deferred=true, sessionId=42"
+  static const QString kClipboardMetaTag = QStringLiteral("CLIPBOARD_META:");
+  int metaIdx = line.indexOf(kClipboardMetaTag);
+  if (metaIdx < 0)
+    return;
+
+  QString payload = line.mid(metaIdx + kClipboardMetaTag.length()).trimmed();
+
+  // Extract fields with simple key=value parsing
+  auto extractField = [&](const QString &key) -> QString {
+    QString search = key + QStringLiteral("=");
+    int pos = payload.indexOf(search);
+    if (pos < 0)
+      return {};
+    pos += search.length();
+    int end = payload.indexOf(QStringLiteral(","), pos);
+    if (end < 0)
+      end = payload.length();
+    return payload.mid(pos, end - pos).trimmed();
+  };
+
+  QString type = extractField(QStringLiteral("type"));
+  QString items = extractField(QStringLiteral("items"));
+  QString sizeStr = extractField(QStringLiteral("size"));
+  QString source = extractField(QStringLiteral("source"));
+  QString deferred = extractField(QStringLiteral("deferred"));
+
+  // Format human-readable size
+  qint64 sizeBytes = sizeStr.toLongLong();
+  QString sizeHuman;
+  if (sizeBytes >= 1073741824)
+    sizeHuman = QStringLiteral("%1 GB").arg(sizeBytes / 1073741824.0, 0, 'f', 1);
+  else if (sizeBytes >= 1048576)
+    sizeHuman = QStringLiteral("%1 MB").arg(sizeBytes / 1048576.0, 0, 'f', 1);
+  else if (sizeBytes >= 1024)
+    sizeHuman = QStringLiteral("%1 KB").arg(sizeBytes / 1024.0, 0, 'f', 1);
+  else
+    sizeHuman = QStringLiteral("%1 B").arg(sizeBytes);
+
+  // Build summary message
+  QString summary;
+  if (type == QStringLiteral("file")) {
+    int count = items.toInt();
+    summary = tr("%1 file(s) from %2 (%3)").arg(count).arg(source, sizeHuman);
+    if (deferred == QStringLiteral("true"))
+      summary += tr(" - paste to transfer");
+  } else if (type == QStringLiteral("image")) {
+    summary = tr("Image from %1 (%2)").arg(source, sizeHuman);
+  } else if (type == QStringLiteral("text")) {
+    summary = tr("Text from %1 (%2)").arg(source, sizeHuman);
+  } else if (type == QStringLiteral("html")) {
+    summary = tr("HTML from %1 (%2)").arg(source, sizeHuman);
+  } else {
+    summary = tr("Clipboard from %1 (%2)").arg(source, sizeHuman);
+  }
+
+  // Show in status bar (auto-clears after 8 seconds)
+  statusBar()->showMessage(summary, 8000);
 }

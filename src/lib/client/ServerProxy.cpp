@@ -633,8 +633,21 @@ void ServerProxy::setClipboardMeta()
   // Parse metadata
   ClipboardMeta meta = ClipboardMeta::deserialize(metaJson);
 
+  // Structured log for GUI to parse and display clipboard summary
+  const char *typeStr = "data";
+  if (meta.contentType == static_cast<uint32_t>(IClipboard::Format::FileList))
+    typeStr = "file";
+  else if (meta.contentType == static_cast<uint32_t>(IClipboard::Format::Bitmap))
+    typeStr = "image";
+  else if (meta.contentType == static_cast<uint32_t>(IClipboard::Format::HTML))
+    typeStr = "html";
+  else if (meta.contentType == static_cast<uint32_t>(IClipboard::Format::Text))
+    typeStr = "text";
+
   LOG_INFO(
-      "received clipboard %d metadata (size=%llu, deferred=%s, sessionId=%llu)", id, meta.totalSize,
+      "CLIPBOARD_META: type=%s, items=%u, size=%llu, source=%s, deferred=%s, sessionId=%llu",
+      typeStr, meta.itemCount, meta.totalSize,
+      meta.sourceAddress.empty() ? "host" : meta.sourceAddress.c_str(),
       meta.deferred ? "true" : "false", meta.sessionId
   );
 
