@@ -699,6 +699,11 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
           // On Windows host: when switching back to primary screen with deferred FileList,
           // set up delayed rendering instead of sending full data (which is just JSON, not CF_HDROP)
           IClipboard::Format fmt = static_cast<IClipboard::Format>(clipboard.m_meta.contentType);
+          LOG_INFO(
+              "switchScreen: clipboard %d deferred check: isPrimary=%d, fmt=%u, sourceAddr=%s, sourcePort=%u",
+              id, (m_active == m_primaryClient), clipboard.m_meta.contentType,
+              clipboard.m_meta.sourceAddress.c_str(), clipboard.m_meta.sourcePort
+          );
           if (m_active == m_primaryClient && fmt == IClipboard::Format::FileList) {
             if (id == kClipboardClipboard &&
                 !clipboard.m_meta.sourceAddress.empty() && clipboard.m_meta.sourcePort > 0) {
@@ -708,8 +713,7 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
               );
               setupDelayedRenderingForPrimary(clipboard, id);
             } else {
-              // Skip clipboard 1 (X11 selection) for FileList on Windows - not meaningful
-              LOG_DEBUG("switchScreen: skipping deferred FileList for clipboard %d on primary", id);
+              LOG_INFO("switchScreen: skipping deferred FileList for clipboard %d on primary", id);
             }
             markClientHasClipboardData(m_active, id);
             continue;
