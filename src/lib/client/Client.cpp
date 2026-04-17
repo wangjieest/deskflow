@@ -82,6 +82,15 @@ Client::Client(
   ));
 
 #if defined(__APPLE__)
+  // Pre-initialize ClipboardTransferThread so it's ready when receiving
+  // file clipboard meta from server (Mac is the paste destination).
+  m_clipboardTransferThread = new ClipboardTransferThread();
+  if (!m_clipboardTransferThread->start()) {
+    LOG_WARN("[Client] failed to pre-start clipboard transfer thread");
+    delete m_clipboardTransferThread;
+    m_clipboardTransferThread = nullptr;
+  }
+
   // Start listening for paste requests from the Finder Sync Extension.
   // When user right-clicks in Finder and selects "Deskflow Paste",
   // the extension posts a notification with the target directory.
