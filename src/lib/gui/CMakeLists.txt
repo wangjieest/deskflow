@@ -144,3 +144,7 @@ if(WIN32)
     net
   )
 endif()
+
+if(APPLE)
+  target_link_libraries(${target} "-framework FinderSync")
+endif()

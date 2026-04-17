@@ -1,0 +1,195 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		8AC3F64886C644529180E32D /* FinderSync.m in Sources */ = {isa = PBXBuildFile; fileRef = A7AC435FC5674A83AA9E4147 /* FinderSync.m */; };
+		A177D97FB7E346AE9E6C68CB /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7DC996BC853C418A8D0C7D42 /* Foundation.framework */; };
+		8A1BB29C6FF24BCC9700CF14 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2D33E4BC26934698AD2ED1C7 /* Cocoa.framework */; };
+		69A58D1B29C34216B141039E /* FinderSync.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = ECB9834261F34984ADCCCF3B /* FinderSync.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		DDDD3A6108AD4EF986043BE2 /* FinderSync.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "FinderSync.h"; path = "/Users/jeffry.wang/GIST/deskflow/src/apps/deskflow-paste-ext/FinderSync.h"; sourceTree = "<absolute>"; };
+		A7AC435FC5674A83AA9E4147 /* FinderSync.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = "FinderSync.m"; path = "/Users/jeffry.wang/GIST/deskflow/src/apps/deskflow-paste-ext/FinderSync.m"; sourceTree = "<absolute>"; };
+		04DF47116AE84D1E8175D559 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "Info.plist"; path = "/Users/jeffry.wang/GIST/deskflow/src/apps/deskflow-paste-ext/Info.plist"; sourceTree = "<absolute>"; };
+		16CA3F719B73420B902BDC66 /* DeskflowPaste.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = "DeskflowPaste.entitlements"; path = "/Users/jeffry.wang/GIST/deskflow/src/apps/deskflow-paste-ext/DeskflowPaste.entitlements"; sourceTree = "<absolute>"; };
+		992D854097414930B4D31527 /* DeskflowPaste.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "DeskflowPaste.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7DC996BC853C418A8D0C7D42 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		2D33E4BC26934698AD2ED1C7 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		ECB9834261F34984ADCCCF3B /* FinderSync.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FinderSync.framework; path = System/Library/Frameworks/FinderSync.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		14E6447929944131805C2C33 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A177D97FB7E346AE9E6C68CB /* Foundation.framework in Frameworks */,
+				8A1BB29C6FF24BCC9700CF14 /* Cocoa.framework in Frameworks */,
+				69A58D1B29C34216B141039E /* FinderSync.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		72ADDB980C8E42E08826B17B /* DeskflowPaste */ = {
+			isa = PBXGroup;
+			children = (
+				DDDD3A6108AD4EF986043BE2 /* FinderSync.h */,
+				A7AC435FC5674A83AA9E4147 /* FinderSync.m */,
+				04DF47116AE84D1E8175D559 /* Info.plist */,
+				16CA3F719B73420B902BDC66 /* DeskflowPaste.entitlements */,
+				1E7385E5EEFF4AB7AB20212B /* Products */,
+			);
+			name = DeskflowPaste;
+			sourceTree = "<group>";
+		};
+		1E7385E5EEFF4AB7AB20212B /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				992D854097414930B4D31527 /* DeskflowPaste.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		F42DEFFA428C45FFBCFEC721 /* DeskflowPaste */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4788289F4CD3499E88334F85 /* Build configuration list for PBXNativeTarget "DeskflowPaste" */;
+			buildPhases = (
+				24C259A79FEF4AC891F47F3F /* Sources */,
+				14E6447929944131805C2C33 /* Frameworks */,
+				188C38B232D349C991B78E45 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = DeskflowPaste;
+			productName = DeskflowPaste;
+			productReference = 992D854097414930B4D31527 /* DeskflowPaste.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		170D935D92B846A3ABFD7E6C /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1600;
+				ORGANIZATIONNAME = "AutoDeskflow Developers";
+			};
+			buildConfigurationList = 3488EFF9008248FA83FC69D5 /* Build configuration list for PBXProject */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base);
+			mainGroup = 72ADDB980C8E42E08826B17B;
+			productRefGroup = 1E7385E5EEFF4AB7AB20212B /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (F42DEFFA428C45FFBCFEC721 /* DeskflowPaste */);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		188C38B232D349C991B78E45 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		24C259A79FEF4AC891F47F3F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8AC3F64886C644529180E32D /* FinderSync.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		68EA573BC5434D809BDB0EDF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		82BADB189E4342B492AA8E2B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		37A49F7E120645C5AAC1B34A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "/Users/jeffry.wang/GIST/deskflow/src/apps/deskflow-paste-ext/DeskflowPaste.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6H5RT96MM3;
+				INFOPLIST_FILE = "/Users/jeffry.wang/GIST/deskflow/src/apps/deskflow-paste-ext/Info.plist";
+				GENERATE_INFOPLIST_FILE = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = "org.autodeskflow.autodeskflow.paste-ext";
+				PRODUCT_NAME = DeskflowPaste;
+				SKIP_INSTALL = YES;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		71906CFB97D8403F961E8425 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "/Users/jeffry.wang/GIST/deskflow/src/apps/deskflow-paste-ext/DeskflowPaste.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 6H5RT96MM3;
+				INFOPLIST_FILE = "/Users/jeffry.wang/GIST/deskflow/src/apps/deskflow-paste-ext/Info.plist";
+				GENERATE_INFOPLIST_FILE = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = "org.autodeskflow.autodeskflow.paste-ext";
+				PRODUCT_NAME = DeskflowPaste;
+				SKIP_INSTALL = YES;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3488EFF9008248FA83FC69D5 /* Build configuration list for PBXProject */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (68EA573BC5434D809BDB0EDF /* Debug */, 82BADB189E4342B492AA8E2B /* Release */);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4788289F4CD3499E88334F85 /* Build configuration list for PBXNativeTarget "DeskflowPaste" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (37A49F7E120645C5AAC1B34A /* Debug */, 71906CFB97D8403F961E8425 /* Release */);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = 170D935D92B846A3ABFD7E6C /* Project object */;
+}

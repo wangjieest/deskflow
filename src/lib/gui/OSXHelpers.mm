@@ -7,6 +7,7 @@
 #import "OSXHelpers.h"
 
 #import <Cocoa/Cocoa.h>
+#import <FinderSync/FinderSync.h>
 #import <CoreData/CoreData.h>
 #import <Foundation/Foundation.h>
 #import <UserNotifications/UNNotification.h>
@@ -106,4 +107,14 @@ void macOSNativeHide()
 {
   [NSApp hide:nil];
   [[NSApplication sharedApplication] setActivationPolicy:NSApplicationActivationPolicyAccessory];
+}
+
+bool isFinderSyncExtensionEnabled()
+{
+  return [FIFinderSyncController isExtensionEnabled];
+}
+
+void showFinderExtensionManagement()
+{
+  [FIFinderSyncController showExtensionManagementInterface];
 }
