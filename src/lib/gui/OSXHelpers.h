@@ -17,3 +17,5 @@ bool isOSXInterfaceStyleDark();
 void forceAppActive();
 void macOSNativeHide();
 void installQuitHandler(std::function<bool()> shouldQuit);
+bool isFinderSyncExtensionEnabled();
+void showFinderExtensionManagement();

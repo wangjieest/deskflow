@@ -15,7 +15,7 @@ set_target_properties(${EXT_TARGET} PROPERTIES
   BUNDLE TRUE
   BUNDLE_EXTENSION appex
   MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist"
-  XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "org.deskflow.deskflow.paste-ext"
+  XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "org.autodeskflow.autodeskflow.paste-ext"
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
 )
 
@@ -24,6 +24,16 @@ target_link_libraries(${EXT_TARGET} PRIVATE
   "-framework Cocoa"
   "-framework FinderSync"
 )
+
+# Sign with entitlements (required for sandbox + FinderSync registration)
+if(APPLE_CODESIGN_DEV)
+  add_custom_command(TARGET ${EXT_TARGET} POST_BUILD
+    COMMAND codesign --force --sign "${APPLE_CODESIGN_DEV}"
+      --entitlements "${CMAKE_CURRENT_SOURCE_DIR}/DeskflowPaste.entitlements"
+      "$<TARGET_BUNDLE_DIR:${EXT_TARGET}>"
+    COMMENT "Signing ${EXT_TARGET}.appex with entitlements"
+  )
+endif()
 
 # Embed the .appex into the main app bundle's PlugIns directory
 set(PLUGINS_DIR "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/AutoDeskflow.app/Contents/PlugIns")

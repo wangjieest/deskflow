@@ -137,3 +137,7 @@ target_link_libraries(${target}
     net
     Qt6::Widgets
 )
+
+if(APPLE)
+  target_link_libraries(${target} "-framework FinderSync")
+endif()

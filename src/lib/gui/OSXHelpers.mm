@@ -7,6 +7,7 @@
 #import "OSXHelpers.h"
 
 #import <Cocoa/Cocoa.h>
+#import <FinderSync/FinderSync.h>
 #import <CoreData/CoreData.h>
 #import <Foundation/Foundation.h>
 #import <UserNotifications/UNNotification.h>
@@ -154,4 +155,14 @@ void installQuitHandler(std::function<bool()> shouldQuit)
                                                                 Q_UNUSED(note)
                                                                 s_isSystemShuttingDown = YES;
                                                               }];
+}
+
+bool isFinderSyncExtensionEnabled()
+{
+  return [FIFinderSyncController isExtensionEnabled];
+}
+
+void showFinderExtensionManagement()
+{
+  [FIFinderSyncController showExtensionManagementInterface];
 }

@@ -5,15 +5,15 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>DeskflowPaste</string>
+	<string>AutoDeskflowPaste</string>
 	<key>CFBundleExecutable</key>
 	<string>DeskflowPaste</string>
 	<key>CFBundleIdentifier</key>
-	<string>org.deskflow.deskflow.paste-ext</string>
+	<string>org.autodeskflow.autodeskflow.paste-ext</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>DeskflowPaste</string>
+	<string>AutoDeskflowPaste</string>
 	<key>CFBundlePackageType</key>
 	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>

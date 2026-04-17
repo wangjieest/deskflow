@@ -53,6 +53,7 @@
 
 #if defined(Q_OS_MACOS)
 #include <ApplicationServices/ApplicationServices.h>
+#include "OSXHelpers.h"
 #endif
 
 using namespace deskflow::gui;
