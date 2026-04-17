@@ -178,7 +178,10 @@ void ClipboardTransferClient::requestFile(
         // Skip optional extra fields (fileName etc.) — just use fileName from path
         std::string dir = destFolder.empty() ? getTempDirectory() : destFolder;
         if (!dir.empty() && dir.back() != '/' && dir.back() != '\\') dir += '/';
-        localPath = dir + fileName;
+        // Write to .pasting temp file, rename on completion
+        localPath = dir + fileName + ".pasting";
+        // Remove any leftover temp file
+        ::unlink(localPath.c_str());
         LOG_INFO("[ClipboardTransferClient] receiving file to: %s", localPath.c_str());
         continue;
       }
@@ -188,6 +191,10 @@ void ClipboardTransferClient::requestFile(
         continue;
       }
       if (chunkType == static_cast<uint8_t>(FileChunkType::End)) {
+        // Rename .pasting → final name
+        std::string finalPath = localPath.substr(0, localPath.size() - 8); // strip ".pasting"
+        ::rename(localPath.c_str(), finalPath.c_str());
+        localPath = finalPath;
         LOG_INFO("[ClipboardTransferClient] file received: %s", localPath.c_str());
         success = true;
         break;
