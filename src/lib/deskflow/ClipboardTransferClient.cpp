@@ -21,14 +21,25 @@
 #include <ctime>
 #include <fstream>
 #include <sstream>
+#include <thread>
 
 #ifdef _WIN32
 #include <direct.h>
 #include <windows.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #define mkdir(dir, mode) _mkdir(dir)
 #else
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#define closesocket close
+#define INVALID_SOCKET (-1)
+#define SOCKET_ERROR   (-1)
+typedef int SOCKET;
 #endif
 
 ClipboardTransferClient::ClipboardTransferClient(IEventQueue *events, SocketMultiplexer *socketMultiplexer)
@@ -47,42 +58,144 @@ ClipboardTransferClient::~ClipboardTransferClient()
   closeAll();
 }
 
+// Blocking POSIX helper: read exactly n bytes
+static bool recvAll(SOCKET fd, void *buf, size_t n)
+{
+  char *p = static_cast<char *>(buf);
+  size_t got = 0;
+  while (got < n) {
+    ssize_t r = recv(fd, p + got, n - got, 0);
+    if (r <= 0) return false;
+    got += static_cast<size_t>(r);
+  }
+  return true;
+}
+
 void ClipboardTransferClient::requestFile(
     const std::string &sourceAddr, uint16_t port, uint64_t sessionId, const std::string &remotePath,
     FileTransferCallback callback
 )
 {
   LOG_INFO(
-      "[ClipboardTransferClient] requesting file: %s from %s:%u (session=%llu)", remotePath.c_str(), sourceAddr.c_str(),
-      port, sessionId
+      "[ClipboardTransferClient] requesting file (blocking): %s from %s:%u (session=%llu)",
+      remotePath.c_str(), sourceAddr.c_str(), port, sessionId
   );
 
-  // Get or create connection
-  Connection *conn = getConnection(sourceAddr, port, sessionId);
-  if (!conn) {
-    LOG_ERR("[ClipboardTransferClient] failed to connect to %s:%u", sourceAddr.c_str(), port);
-    if (callback) {
-      callback(false, "", "Failed to connect to source");
-    }
-    return;
-  }
-
-  // Generate request ID
+  // Capture everything by value for the thread
+  std::string destFolder = m_destFolder;
   uint32_t requestId = generateRequestId();
 
-  // Create pending request
-  PendingRequest req;
-  req.requestId = requestId;
-  req.remotePath = remotePath;
-  req.callback = callback;
+  std::thread([sourceAddr, port, sessionId, remotePath, requestId, callback, destFolder, this]() {
+    // --- plain POSIX blocking connect ---
+    struct addrinfo hints{}, *res = nullptr;
+    hints.ai_family   = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    std::string portStr = std::to_string(port);
+    if (getaddrinfo(sourceAddr.c_str(), portStr.c_str(), &hints, &res) != 0 || !res) {
+      LOG_ERR("[ClipboardTransferClient] DNS resolve failed for %s", sourceAddr.c_str());
+      if (callback) callback(false, "", "DNS resolve failed");
+      return;
+    }
+    SOCKET fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (fd == INVALID_SOCKET) {
+      freeaddrinfo(res);
+      if (callback) callback(false, "", "socket() failed");
+      return;
+    }
+    // 10-second connect timeout
+    struct timeval tv{10, 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
+    if (connect(fd, res->ai_addr, static_cast<socklen_t>(res->ai_addrlen)) != 0) {
+      freeaddrinfo(res);
+      closesocket(fd);
+      LOG_ERR("[ClipboardTransferClient] connect to %s:%u failed", sourceAddr.c_str(), port);
+      if (callback) callback(false, "", "connect failed");
+      return;
+    }
+    freeaddrinfo(res);
+    LOG_INFO("[ClipboardTransferClient] connected to %s:%u", sourceAddr.c_str(), port);
 
-  conn->pendingRequests[requestId] = std::move(req);
+    // --- send P2P request ---
+    // Format: "P2P " + sessionId(8BE) + requestId(4BE) + pathLen(4BE) + path
+    std::vector<uint8_t> req;
+    req.insert(req.end(), {'P','2','P',' '});
+    for (int i = 7; i >= 0; --i) req.push_back((sessionId >> (8*i)) & 0xFF);
+    for (int i = 3; i >= 0; --i) req.push_back((requestId >> (8*i)) & 0xFF);
+    uint32_t plen = static_cast<uint32_t>(remotePath.size());
+    for (int i = 3; i >= 0; --i) req.push_back((plen >> (8*i)) & 0xFF);
+    req.insert(req.end(), remotePath.begin(), remotePath.end());
+    send(fd, reinterpret_cast<const char*>(req.data()), static_cast<int>(req.size()), 0);
+    LOG_DEBUG("[ClipboardTransferClient] sent P2P req: session=%llu reqId=%u path=%s",
+              sessionId, requestId, remotePath.c_str());
 
-  // Send request
-  if (!sendFileRequest(conn, requestId, remotePath)) {
-    LOG_ERR("[ClipboardTransferClient] failed to send request");
-    completeRequest(conn, requestId, false, "Failed to send request");
-  }
+    // --- read response packets (length-prefixed DFCH) ---
+    // Server uses ProtocolUtil::writef which adds 4-byte BE packet length prefix
+    // Determine destination path
+    std::string fileName = remotePath;
+    auto slash = fileName.find_last_of("/\\");
+    if (slash != std::string::npos) fileName = fileName.substr(slash + 1);
+    std::string localPath;
+
+    bool success = false;
+    while (true) {
+      // Read 4-byte packet length
+      uint8_t lenBuf[4];
+      if (!recvAll(fd, lenBuf, 4)) {
+        LOG_ERR("[ClipboardTransferClient] failed to read packet length");
+        break;
+      }
+      uint32_t pktLen = (uint32_t(lenBuf[0])<<24)|(uint32_t(lenBuf[1])<<16)|(uint32_t(lenBuf[2])<<8)|lenBuf[3];
+      if (pktLen < 9 || pktLen > 64*1024*1024) {
+        LOG_ERR("[ClipboardTransferClient] bad packet length %u", pktLen);
+        break;
+      }
+      std::vector<uint8_t> pkt(pktLen);
+      if (!recvAll(fd, pkt.data(), pktLen)) {
+        LOG_ERR("[ClipboardTransferClient] failed to read packet body");
+        break;
+      }
+      // Verify DFCH header
+      if (pkt[0]!='D'||pkt[1]!='F'||pkt[2]!='C'||pkt[3]!='H') {
+        LOG_ERR("[ClipboardTransferClient] bad chunk magic");
+        break;
+      }
+      uint32_t rId = (uint32_t(pkt[4])<<24)|(uint32_t(pkt[5])<<16)|(uint32_t(pkt[6])<<8)|pkt[7];
+      uint8_t  chunkType = pkt[8];
+      uint32_t dataLen = (uint32_t(pkt[9])<<24)|(uint32_t(pkt[10])<<16)|(uint32_t(pkt[11])<<8)|pkt[12];
+      const uint8_t *data = pkt.data() + 13;
+
+      LOG_DEBUG("[ClipboardTransferClient] chunk: reqId=%u type=%u dataLen=%u", rId, chunkType, dataLen);
+
+      if (chunkType == static_cast<uint8_t>(FileChunkType::Error)) {
+        std::string errMsg(reinterpret_cast<const char*>(data), dataLen);
+        LOG_ERR("[ClipboardTransferClient] server error: %s", errMsg.c_str());
+        break;
+      }
+      if (chunkType == static_cast<uint8_t>(FileChunkType::Start)) {
+        // data = relativePath string (4-byte len + bytes)
+        uint32_t relLen = (uint32_t(data[0])<<24)|(uint32_t(data[1])<<16)|(uint32_t(data[2])<<8)|data[3];
+        std::string relPath(reinterpret_cast<const char*>(data+4), relLen);
+        // Skip optional extra fields (fileName etc.) — just use fileName from path
+        std::string dir = destFolder.empty() ? getTempDirectory() : destFolder;
+        if (!dir.empty() && dir.back() != '/' && dir.back() != '\\') dir += '/';
+        localPath = dir + fileName;
+        LOG_INFO("[ClipboardTransferClient] receiving file to: %s", localPath.c_str());
+        continue;
+      }
+      if (chunkType == static_cast<uint8_t>(FileChunkType::Data)) {
+        std::ofstream f(localPath, std::ios::binary | std::ios::app);
+        f.write(reinterpret_cast<const char*>(data), dataLen);
+        continue;
+      }
+      if (chunkType == static_cast<uint8_t>(FileChunkType::End)) {
+        LOG_INFO("[ClipboardTransferClient] file received: %s", localPath.c_str());
+        success = true;
+        break;
+      }
+    }
+    closesocket(fd);
+    if (callback) callback(success, localPath, success ? "" : "transfer failed");
+  }).detach();
 }
 
 void ClipboardTransferClient::closeAll()
