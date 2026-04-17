@@ -287,8 +287,8 @@ void ClipboardTransferClient::handleDataReady(IDataSocket *socket)
     uint8_t chunkType;
     std::string data;
 
-    // kMsgDFileChunk format: "DFCH" + requestId(4) + chunkType(1) + data
-    if (!ProtocolUtil::readf(conn->stream, kMsgDFileChunk + 4, &requestId, &chunkType, &data)) {
+    // kMsgDFileChunk = "DFCH%4i%1i%s" - readf must consume the "DFCH" header too
+    if (!ProtocolUtil::readf(conn->stream, kMsgDFileChunk, &requestId, &chunkType, &data)) {
       LOG_DEBUG("[ClipboardTransferClient] waiting for more data");
       return;
     }
