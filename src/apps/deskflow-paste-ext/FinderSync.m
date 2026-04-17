@@ -76,7 +76,13 @@ static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
 - (void)handleClipboardUpdate:(NSNotification *)note {
   _cachedState = note.userInfo;
   _lastStateCheck = [NSDate date];
-  NSLog(@"[DeskflowFinderSync] clipboard update: %@", note.userInfo);
+}
+
+- (NSString *)sourceLabel {
+  NSDictionary *state = [self loadClipboardState];
+  NSString *source = state[@"source"];
+  if (source.length > 0) return source;
+  return @"remote";
 }
 
 #pragma mark - Socket Communication
@@ -202,11 +208,13 @@ static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
   NSUInteger count = hasPending ? [self pendingFileCount] : 0;
 
   NSString *title;
-  if (!hasPending || count <= 1) {
-    title = @"AutoDeskflow Paste";
+  if (!hasPending) {
+    title = @"No Files to Paste";
+  } else if (count == 1) {
+    title = [NSString stringWithFormat:@"Paste 1 File from %@", [self sourceLabel]];
   } else {
-    title = [NSString stringWithFormat:@"AutoDeskflow Paste (%lu files)",
-                                       (unsigned long)count];
+    title = [NSString stringWithFormat:@"Paste %lu Files from %@",
+                                       (unsigned long)count, [self sourceLabel]];
   }
 
   NSMenuItem *item =
