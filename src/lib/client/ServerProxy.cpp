@@ -714,6 +714,8 @@ void ServerProxy::setClipboardMeta()
 
 #if defined(__APPLE__)
     // On macOS, set up ClipboardTransferThread for point-to-point transfer
+    LOG_INFO("[ServerProxy] macOS clipboard meta: type=%u addr='%s' port=%u",
+             meta.contentType, meta.sourceAddress.c_str(), meta.sourcePort);
     if (meta.contentType == static_cast<uint32_t>(IClipboard::Format::FileList) &&
         !meta.sourceAddress.empty() && meta.sourcePort > 0) {
       LOG_INFO(
@@ -723,6 +725,16 @@ void ServerProxy::setClipboardMeta()
 
       // Get ClipboardTransferThread from client
       ClipboardTransferThread *transferThread = m_client->getClipboardTransferThread();
+      LOG_INFO("[ServerProxy] transferThread=%s isRunning=%d",
+               transferThread ? "ok" : "null",
+               transferThread ? (int)transferThread->isRunning() : -1);
+      // Ensure thread is running (may not be ready immediately after pre-init)
+      if (transferThread && !transferThread->isRunning()) {
+        LOG_INFO("[ServerProxy] starting transferThread now");
+        transferThread->start();
+        // Give thread a moment to start
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      }
       if (transferThread && transferThread->isRunning()) {
         // Parse file list from metadata
         std::vector<ClipboardTransferFileInfo> files;
@@ -751,10 +763,13 @@ void ServerProxy::setClipboardMeta()
         );
 
         // Publish pending files to Finder Sync Extension via shared state file
-        OSXPasteboardBridge::publishPendingFiles(meta.metadata, static_cast<int>(parsedFiles.size()), meta.sourceAddress);
+        OSXPasteboardBridge::publishPendingFiles(meta.metadata, static_cast<int>(parsedFiles.size()), meta.sourceAddress, meta.sourcePort);
       } else {
-        LOG_WARN("[ServerProxy] ClipboardTransferThread not available, will use legacy transfer");
+        LOG_WARN("[ServerProxy] ClipboardTransferThread not available or not running - setPendingFilesForPaste SKIPPED");
       }
+    } else {
+      LOG_INFO("[ServerProxy] skipping macOS paste setup: type=%u addr='%s' port=%u",
+               meta.contentType, meta.sourceAddress.c_str(), meta.sourcePort);
     }
 #endif
   }

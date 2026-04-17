@@ -305,7 +305,12 @@ void ClipboardTransferThread::handleRequestFiles(const Message &msg)
 
   // Set destination folder on the client so files go directly there
   ClipboardTransferClient *client = m_worker ? m_worker->getClient() : nullptr;
-  if (client && !msg.destFolder.empty()) {
+  if (!client) {
+    LOG_ERR("[ClipboardTransfer] handleRequestFiles: client is null (worker=%s)", m_worker ? "ok" : "null");
+    if (msg.batchCallback) msg.batchCallback(false, {});
+    return;
+  }
+  if (!msg.destFolder.empty()) {
     client->setDestinationFolder(msg.destFolder);
   }
 
@@ -493,8 +498,8 @@ std::vector<std::string> ClipboardTransferThread::requestFilesAndWait(const std:
     sessionId = m_pendingSessionId;
   }
 
-  LOG_INFO("[ClipboardTransfer] requesting %zu files from %s:%u to %s", files.size(), sourceAddr.c_str(), sourcePort,
-           destFolder.c_str());
+  LOG_INFO("[ClipboardTransfer] requesting %zu files from %s:%u to '%s' (sessionId=%llu)",
+           files.size(), sourceAddr.c_str(), sourcePort, destFolder.c_str(), sessionId);
 
   // Use condition variable to wait for completion
   auto completedPaths = std::make_shared<std::vector<std::string>>();
@@ -522,14 +527,17 @@ std::vector<std::string> ClipboardTransferThread::requestFilesAndWait(const std:
   bool completed = waitCondition.wait_for(lock, std::chrono::milliseconds(timeoutMs), [done] { return done->load(); });
 
   if (!completed) {
-    LOG_WARN("[ClipboardTransfer] file request timed out after %u ms", timeoutMs);
+    LOG_WARN("[ClipboardTransfer] timed out after %u ms waiting for transfer from %s:%u",
+             timeoutMs, sourceAddr.c_str(), sourcePort);
     return {};
   }
 
   if (!success->load()) {
-    LOG_ERR("[ClipboardTransfer] file transfer failed");
+    LOG_ERR("[ClipboardTransfer] transfer from %s:%u FAILED", sourceAddr.c_str(), sourcePort);
     return {};
   }
+
+  LOG_INFO("[ClipboardTransfer] transfer complete, %zu file(s) received", completedPaths->size());
 
   // Store completed paths
   {

@@ -95,24 +95,28 @@ Client::Client(
   // When user right-clicks in Finder and selects "Deskflow Paste",
   // the extension posts a notification with the target directory.
   OSXPasteboardBridge::startListening([this](const std::string &targetDir) {
-    LOG_INFO("Finder paste request received, target: %s", targetDir.c_str());
+    LOG_INFO("[FinderPaste] paste request received, target: %s", targetDir.c_str());
 
     if (!m_clipboardTransferThread || !m_clipboardTransferThread->isRunning()) {
-      LOG_WARN("clipboard transfer thread not available for Finder paste");
+      LOG_WARN("[FinderPaste] clipboard transfer thread not available (null=%d, running=%d)",
+               m_clipboardTransferThread == nullptr,
+               m_clipboardTransferThread ? m_clipboardTransferThread->isRunning() : 0);
       return;
     }
 
     if (!m_clipboardTransferThread->hasPendingFilesForPaste()) {
-      LOG_WARN("no pending files for Finder paste");
+      LOG_WARN("[FinderPaste] no pending files in transfer thread");
       return;
     }
+
+    LOG_INFO("[FinderPaste] starting file transfer to: %s", targetDir.c_str());
 
     // Request files and wait (up to 60s), then update pasteboard
     std::vector<std::string> paths =
         m_clipboardTransferThread->requestFilesAndWait(targetDir, 60000);
 
     if (!paths.empty()) {
-      LOG_INFO("Finder paste: %zu file(s) transferred to %s", paths.size(), targetDir.c_str());
+      LOG_INFO("[FinderPaste] %zu file(s) transferred to %s", paths.size(), targetDir.c_str());
 
       // Update macOS pasteboard with actual file URLs
       std::vector<const char *> cPaths;
@@ -126,7 +130,7 @@ Client::Client(
       OSXPasteboardBridge::clearPendingFiles();
       OSXClipboardFileConverter::clearPendingFiles();
     } else {
-      LOG_ERR("Finder paste: file transfer failed or timed out");
+      LOG_ERR("[FinderPaste] file transfer failed or timed out after 60s");
     }
   });
 #endif
