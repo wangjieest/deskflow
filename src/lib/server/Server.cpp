@@ -2470,8 +2470,18 @@ void Server::updateClipboardMeta(ClipboardInfo &clipboard)
     std::string fileListData = cb.get(IClipboard::Format::FileList);
     LOG_INFO("[Server] updateClipboardMeta: FileList data (len=%zu): %.200s", fileListData.size(), fileListData.c_str());
 
+    // Count actual files in JSON array (entries with "name" field, excluding __source)
+    uint32_t fileCount = 0;
+    {
+      size_t pos = 0;
+      while ((pos = fileListData.find("\"name\"", pos)) != std::string::npos) {
+        fileCount++;
+        pos += 6;
+      }
+    }
+
     clipboard.m_meta =
-        ClipboardMeta::createForFileList(clipboard.m_sessionId, fileListData, fileListData.size(), 0);
+        ClipboardMeta::createForFileList(clipboard.m_sessionId, fileListData, fileListData.size(), fileCount);
 
     // Parse __source metadata from FileList JSON for point-to-point transfer
     // Format: [{"__source":{"address":"IP","port":PORT,"sessionId":ID}}, {...files...}]
