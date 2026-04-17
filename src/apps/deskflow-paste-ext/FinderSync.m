@@ -198,24 +198,23 @@ static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
 - (NSMenu *)menuForMenuKind:(FIMenuKind)menuKind {
   NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Deskflow"];
 
-  if (![self hasPendingFiles]) {
-    return menu;
-  }
+  BOOL hasPending = [self hasPendingFiles];
+  NSUInteger count = hasPending ? [self pendingFileCount] : 0;
 
-  NSUInteger count = [self pendingFileCount];
   NSString *title;
-  if (count <= 1) {
-    title = @"Deskflow Paste";
+  if (!hasPending || count <= 1) {
+    title = @"AutoDeskflow Paste";
   } else {
-    title = [NSString stringWithFormat:@"Deskflow Paste (%lu files)",
+    title = [NSString stringWithFormat:@"AutoDeskflow Paste (%lu files)",
                                        (unsigned long)count];
   }
 
   NSMenuItem *item =
       [[NSMenuItem alloc] initWithTitle:title
-                                 action:@selector(pasteFromDeskflow:)
+                                 action:hasPending ? @selector(pasteFromDeskflow:) : nil
                           keyEquivalent:@""];
   item.image = _toolbarIcon;
+  item.enabled = hasPending;
   [menu addItem:item];
 
   return menu;
