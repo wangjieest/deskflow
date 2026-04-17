@@ -58,13 +58,13 @@ ClipboardTransferClient::~ClipboardTransferClient()
   closeAll();
 }
 
-// Blocking POSIX helper: read exactly n bytes
+// Blocking helper: read exactly n bytes
 static bool recvAll(SOCKET fd, void *buf, size_t n)
 {
   char *p = static_cast<char *>(buf);
   size_t got = 0;
   while (got < n) {
-    ssize_t r = recv(fd, p + got, n - got, 0);
+    auto r = recv(fd, p + got, static_cast<int>(n - got), 0);
     if (r <= 0) return false;
     got += static_cast<size_t>(r);
   }
