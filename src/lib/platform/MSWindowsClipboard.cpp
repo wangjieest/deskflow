@@ -193,20 +193,25 @@ bool MSWindowsClipboard::addFileListAsIDataObject(const std::string &jsonData)
       return false;
     }
 
-    // Extract P2P connection info from first file
-    // Assume all files come from same source
+    // Extract P2P connection info from __source entry
     std::string sourceAddr;
     uint16_t sourcePort = 0;
     uint64_t sessionId = 0;
 
-    if (json[0].contains("sourceAddr")) {
-      sourceAddr = json[0]["sourceAddr"].get<std::string>();
-    }
-    if (json[0].contains("sourcePort")) {
-      sourcePort = json[0]["sourcePort"].get<uint16_t>();
-    }
-    if (json[0].contains("sessionId")) {
-      sessionId = json[0]["sessionId"].get<uint64_t>();
+    for (const auto &item : json) {
+      if (item.contains("__source")) {
+        const auto &src = item["__source"];
+        if (src.contains("address")) {
+          sourceAddr = src["address"].get<std::string>();
+        }
+        if (src.contains("port")) {
+          sourcePort = src["port"].get<uint16_t>();
+        }
+        if (src.contains("sessionId")) {
+          sessionId = src["sessionId"].get<uint64_t>();
+        }
+        break;
+      }
     }
 
     // Check if we have P2P info
