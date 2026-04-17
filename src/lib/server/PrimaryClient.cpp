@@ -122,6 +122,16 @@ void PrimaryClient::setClipboard(ClipboardID id, const IClipboard *clipboard)
     // this clipboard is now clean
     m_clipboardDirty[id] = false;
 
+#ifdef _WIN32
+    // Skip FileList on primary screen - ClipboardTransferThread handles delayed rendering.
+    // Setting FileList JSON as clipboard data here conflicts with the transfer thread's
+    // CF_HDROP delayed rendering and triggers clipboard ownership feedback loops.
+    if (clipboard && clipboard->has(IClipboard::Format::FileList)) {
+      LOG_DEBUG("PrimaryClient: skipping FileList clipboard %d (handled by ClipboardTransferThread)", id);
+      return;
+    }
+#endif
+
     // set clipboard
     LOG_INFO("PrimaryClient: setting clipboard %d on primary screen", id);
     m_screen->setClipboard(id, clipboard);
