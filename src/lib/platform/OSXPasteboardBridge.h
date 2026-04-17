@@ -29,7 +29,8 @@ public:
 
   /// Broadcast pending file metadata via notification so the extension
   /// can show its menu item. Pure in-memory IPC.
-  static void publishPendingFiles(const std::string &filesJson, int fileCount);
+  static void publishPendingFiles(const std::string &filesJson, int fileCount,
+                                  const std::string &sourceAddress = "");
 
   /// Broadcast that there are no more pending files.
   static void clearPendingFiles();

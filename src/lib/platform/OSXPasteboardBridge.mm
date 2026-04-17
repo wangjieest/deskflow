@@ -32,6 +32,7 @@ static id s_pasteObserver = nil;
 static id s_stateRequestObserver = nil;
 static std::string s_lastFilesJson;
 static int s_lastFileCount = 0;
+static std::string s_lastSourceAddress;
 static int s_serverSocket = -1;
 static std::thread s_socketThread;
 static bool s_running = false;
@@ -127,9 +128,10 @@ static void socketServerLoop()
         if (s_lastFileCount > 0) {
           response = "{\"hasPendingFiles\":true,\"fileCount\":" +
                      std::to_string(s_lastFileCount) +
+                     ",\"source\":\"" + s_lastSourceAddress + "\"" +
                      ",\"files\":" + s_lastFilesJson + "}";
         } else {
-          response = "{\"hasPendingFiles\":false,\"fileCount\":0,\"files\":[]}";
+          response = "{\"hasPendingFiles\":false,\"fileCount\":0,\"source\":\"\",\"files\":[]}";
         }
         write(clientFd, response.c_str(), response.size());
         LOG_DEBUG("OSXPasteboardBridge: served state to extension (%zu bytes)", response.size());
@@ -189,7 +191,7 @@ void OSXPasteboardBridge::startListening(PasteCallback callback)
               usingBlock:^(NSNotification *) {
                 // Re-broadcast current state
                 if (s_lastFileCount > 0) {
-                  publishPendingFiles(s_lastFilesJson, s_lastFileCount);
+                  publishPendingFiles(s_lastFilesJson, s_lastFileCount, s_lastSourceAddress);
                 }
               }];
 
@@ -221,17 +223,19 @@ void OSXPasteboardBridge::stopListening()
 }
 
 void OSXPasteboardBridge::publishPendingFiles(
-    const std::string &filesJson, int fileCount)
+    const std::string &filesJson, int fileCount, const std::string &sourceAddress)
 {
   // Cache for socket server and state re-broadcast
   s_lastFilesJson = filesJson;
   s_lastFileCount = fileCount;
+  s_lastSourceAddress = sourceAddress;
 
   // Broadcast via notification (for extensions that use notification path)
   @autoreleasepool {
     NSDictionary *userInfo = @{
       @"hasPendingFiles" : @YES,
       @"fileCount" : @(fileCount),
+      @"source" : [NSString stringWithUTF8String:sourceAddress.c_str()],
       @"filesJson" : [NSString stringWithUTF8String:filesJson.c_str()],
       @"timestamp" : @([[NSDate date] timeIntervalSince1970])
     };
