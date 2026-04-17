@@ -31,7 +31,7 @@
 #include "net/TCPSocket.h"
 #include "net/TCPSocketFactory.h"
 
-#if WINAPI_CARBON
+#if defined(__APPLE__)
 #include "platform/OSXClipboardFileConverter.h"
 #include "platform/OSXPasteboardBridge.h"
 #include "platform/OSXPasteboardPeeker.h"
@@ -81,7 +81,7 @@ Client::Client(
       }
   ));
 
-#if WINAPI_CARBON
+#if defined(__APPLE__)
   // Start listening for paste requests from the Finder Sync Extension.
   // When user right-clicks in Finder and selects "Deskflow Paste",
   // the extension posts a notification with the target directory.
@@ -134,7 +134,7 @@ Client::~Client()
   cleanupConnection();
   delete m_socketFactory;
 
-#if WINAPI_CARBON
+#if defined(__APPLE__)
   OSXPasteboardBridge::stopListening();
   OSXPasteboardBridge::clearPendingFiles();
 #endif
@@ -326,7 +326,7 @@ void Client::setClipboard(ClipboardID id, const IClipboard *clipboard)
     std::string fileListJson = clipboard->get(IClipboard::Format::FileList);
     LOG_DEBUG("received file list clipboard: %s", fileListJson.c_str());
 
-#if WINAPI_CARBON
+#if defined(__APPLE__)
     // On macOS, we use the Promise mechanism:
     // - File metadata is stored in the clipboard via OSXClipboard::addFilePromise()
     // - When user pastes, the Promise keeper callback triggers file transfer

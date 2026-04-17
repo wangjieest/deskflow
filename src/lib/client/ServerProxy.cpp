@@ -29,7 +29,7 @@
 #include "platform/MSWindowsClipboardFileConverter.h"
 #endif
 
-#if WINAPI_CARBON
+#if defined(__APPLE__)
 #include "deskflow/ClipboardTransferThread.h"
 #include "platform/OSXClipboardFileConverter.h"
 #include "platform/OSXPasteboardBridge.h"
@@ -712,7 +712,7 @@ void ServerProxy::setClipboardMeta()
     }
 #endif
 
-#if WINAPI_CARBON
+#if defined(__APPLE__)
     // On macOS, set up ClipboardTransferThread for point-to-point transfer
     if (meta.contentType == static_cast<uint32_t>(IClipboard::Format::FileList) &&
         !meta.sourceAddress.empty() && meta.sourcePort > 0) {
