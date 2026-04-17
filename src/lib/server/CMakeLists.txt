@@ -42,7 +42,8 @@ add_library(server STATIC
   Server.h
 )
 
-target_link_libraries(server PUBLIC common)
+find_package(nlohmann_json CONFIG REQUIRED)
+target_link_libraries(server PUBLIC common nlohmann_json::nlohmann_json)
 
 if(UNIX)
   target_link_libraries(server PUBLIC app)

@@ -34,6 +34,8 @@
 #include "server/ClientProxyUnknown.h"
 #include "server/PrimaryClient.h"
 
+#include <nlohmann/json.hpp>
+
 #ifdef _WIN32
 #include <algorithm>
 #include <array>
@@ -2399,72 +2401,51 @@ void Server::updateClipboardMeta(ClipboardInfo &clipboard)
     std::string fileListData = cb.get(IClipboard::Format::FileList);
     LOG_INFO("[Server] updateClipboardMeta: FileList data (len=%zu): %.200s", fileListData.size(), fileListData.c_str());
 
-    // Count actual files in JSON array (entries with "name" field, excluding __source)
+    // Parse FileList JSON with nlohmann::json for reliable extraction
     uint32_t fileCount = 0;
-    {
-      size_t pos = 0;
-      while ((pos = fileListData.find("\"name\"", pos)) != std::string::npos) {
-        fileCount++;
-        pos += 6;
+    std::string sourceAddress;
+    uint16_t sourcePort = 0;
+    uint64_t sourceSessionId = 0;
+
+    try {
+      auto json = nlohmann::json::parse(fileListData);
+      if (json.is_array()) {
+        for (const auto &item : json) {
+          // Count actual files (entries with "name" or "path", excluding __source)
+          if (item.contains("name") || (item.contains("path") && !item.contains("__source"))) {
+            fileCount++;
+          }
+          // Extract __source P2P metadata
+          if (item.contains("__source")) {
+            const auto &src = item["__source"];
+            if (src.contains("address")) {
+              sourceAddress = src["address"].get<std::string>();
+            }
+            if (src.contains("port")) {
+              sourcePort = src["port"].get<uint16_t>();
+            }
+            if (src.contains("sessionId")) {
+              sourceSessionId = src["sessionId"].get<uint64_t>();
+            }
+          }
+        }
       }
+    } catch (const nlohmann::json::exception &e) {
+      LOG_WARN("[Server] failed to parse FileList JSON: %s", e.what());
     }
 
     clipboard.m_meta =
         ClipboardMeta::createForFileList(clipboard.m_sessionId, fileListData, fileListData.size(), fileCount);
 
-    // Parse __source metadata from FileList JSON for point-to-point transfer
-    // Format: [{"__source":{"address":"IP","port":PORT,"sessionId":ID}}, {...files...}]
-    size_t sourceStart = fileListData.find("\"__source\"");
-    LOG_DEBUG("[Server] searching for __source in FileList, found at: %zu", sourceStart);
-    if (sourceStart != std::string::npos) {
-      // Find the containing object
-      size_t objStart = fileListData.rfind("{", sourceStart);
-      size_t objEnd = fileListData.find("}", sourceStart);
-      if (objStart != std::string::npos && objEnd != std::string::npos) {
-        // Extract address
-        size_t addrStart = fileListData.find("\"address\":\"", objStart);
-        if (addrStart != std::string::npos && addrStart < objEnd) {
-          addrStart += 11; // Skip "address":"
-          size_t addrEnd = fileListData.find("\"", addrStart);
-          if (addrEnd != std::string::npos && addrEnd < objEnd) {
-            clipboard.m_meta.sourceAddress = fileListData.substr(addrStart, addrEnd - addrStart);
-          }
-        }
-
-        // Extract port
-        size_t portStart = fileListData.find("\"port\":", objStart);
-        if (portStart != std::string::npos && portStart < objEnd) {
-          portStart += 7; // Skip "port":
-          while (portStart < objEnd && fileListData[portStart] == ' ') portStart++;
-          uint16_t port = 0;
-          while (portStart < objEnd && fileListData[portStart] >= '0' && fileListData[portStart] <= '9') {
-            port = port * 10 + (fileListData[portStart] - '0');
-            portStart++;
-          }
-          clipboard.m_meta.sourcePort = port;
-        }
-
-        // Extract sessionId from __source - critical for P2P file transfer
-        // The source machine registers files under this sessionId, so we must use it
-        size_t sessionStart = fileListData.find("\"sessionId\":", objStart);
-        if (sessionStart != std::string::npos && sessionStart < objEnd) {
-          sessionStart += 12; // Skip "sessionId":
-          while (sessionStart < objEnd && fileListData[sessionStart] == ' ') sessionStart++;
-          uint64_t sessionId = 0;
-          while (sessionStart < objEnd && fileListData[sessionStart] >= '0' && fileListData[sessionStart] <= '9') {
-            sessionId = sessionId * 10 + (fileListData[sessionStart] - '0');
-            sessionStart++;
-          }
-          // Use the source's sessionId instead of local clipboard.m_sessionId
-          clipboard.m_meta.sessionId = sessionId;
-          LOG_DEBUG("[Server] extracted sessionId from __source: %llu", sessionId);
-        }
-
-        LOG_INFO(
-            "parsed source info from FileList: address=%s, port=%u, sessionId=%llu",
-            clipboard.m_meta.sourceAddress.c_str(), clipboard.m_meta.sourcePort, clipboard.m_meta.sessionId
-        );
-      }
+    // Apply __source P2P info after createForFileList (which resets all fields)
+    if (!sourceAddress.empty()) {
+      clipboard.m_meta.sourceAddress = sourceAddress;
+      clipboard.m_meta.sourcePort = sourcePort;
+      clipboard.m_meta.sessionId = sourceSessionId;
+      LOG_INFO(
+          "parsed source info from FileList: address=%s, port=%u, sessionId=%llu",
+          sourceAddress.c_str(), sourcePort, sourceSessionId
+      );
     } else if (clipboard.m_clipboardOwner == getName(m_primaryClient)) {
       // No __source in FileList and clipboard is owned by host
       // Start host's file transfer server for point-to-point transfer
@@ -2510,61 +2491,28 @@ void Server::updateClipboardMeta(ClipboardInfo &clipboard)
 
 void Server::parseFileListToWhitelist(ClipboardInfo &clipboard, const std::string &fileListData)
 {
-  // The file list data format depends on the source platform.
-  // For now, we parse the JSON format used in our file transfer protocol.
-  // Format: [{"path":"...", "name":"...", "size":123, "isDir":false}, ...]
-
   clipboard.m_allowedFilePaths.clear();
 
   if (fileListData.empty()) {
     return;
   }
 
-  // Simple JSON array parser for file paths
-  // Look for "path":"..." patterns
-  size_t pos = 0;
-  while ((pos = fileListData.find("\"path\":\"", pos)) != std::string::npos) {
-    pos += 8; // Skip "path":"
-    size_t endPos = pos;
-
-    // Find end of string, handling escapes
-    while (endPos < fileListData.size() && fileListData[endPos] != '"') {
-      if (fileListData[endPos] == '\\' && endPos + 1 < fileListData.size()) {
-        endPos += 2;
-      } else {
-        endPos++;
-      }
-    }
-
-    // Unescape the path
-    std::string path;
-    for (size_t i = pos; i < endPos; ++i) {
-      if (fileListData[i] == '\\' && i + 1 < endPos) {
-        ++i;
-        switch (fileListData[i]) {
-        case 'n':
-          path += '\n';
-          break;
-        case 'r':
-          path += '\r';
-          break;
-        case 't':
-          path += '\t';
-          break;
-        default:
-          path += fileListData[i];
+  try {
+    auto json = nlohmann::json::parse(fileListData);
+    if (json.is_array()) {
+      for (const auto &item : json) {
+        if (item.contains("__source")) continue;
+        if (item.contains("path")) {
+          std::string path = item["path"].get<std::string>();
+          if (!path.empty()) {
+            clipboard.m_allowedFilePaths.insert(path);
+            LOG_DEBUG1("added file to whitelist: %s", path.c_str());
+          }
         }
-      } else {
-        path += fileListData[i];
       }
     }
-
-    if (!path.empty()) {
-      clipboard.m_allowedFilePaths.insert(path);
-      LOG_DEBUG1("added file to whitelist: %s", path.c_str());
-    }
-
-    pos = endPos + 1;
+  } catch (const nlohmann::json::exception &e) {
+    LOG_WARN("[Server] failed to parse FileList for whitelist: %s", e.what());
   }
 }
 
@@ -2866,54 +2814,41 @@ void Server::setupDelayedRenderingForPrimary(ClipboardInfo &clipboard, Clipboard
     return;
   }
 
-  // Parse file list from clipboard data
+  // Parse file list from clipboard data using nlohmann::json
   std::vector<ClipboardTransferFileInfo> files;
   std::string fileListJson = clipboard.m_clipboard.get(IClipboard::Format::FileList);
 
-  // Parse file entries from JSON
-  size_t pos = 0;
-  while (pos < fileListJson.size()) {
-    size_t pathKeyPos = fileListJson.find("\"path\":", pos);
-    if (pathKeyPos == std::string::npos) break;
+  try {
+    auto json = nlohmann::json::parse(fileListJson);
+    if (json.is_array()) {
+      for (const auto &item : json) {
+        // Skip __source metadata entry
+        if (item.contains("__source")) continue;
+        // Must have a path
+        if (!item.contains("path")) continue;
 
-    size_t pathValStart = fileListJson.find("\"", pathKeyPos + 7);
-    if (pathValStart == std::string::npos) break;
-    pathValStart++;
-    size_t pathValEnd = fileListJson.find("\"", pathValStart);
-    if (pathValEnd == std::string::npos) break;
+        ClipboardTransferFileInfo info;
+        info.path = item["path"].get<std::string>();
+        info.size = item.value("size", uint64_t(0));
+        info.isDir = item.value("isDir", false);
 
-    std::string path = fileListJson.substr(pathValStart, pathValEnd - pathValStart);
+        // Use "name" as relativePath, fallback to filename from path
+        if (item.contains("name")) {
+          info.relativePath = item["name"].get<std::string>();
+        } else {
+          info.relativePath = info.path;
+          size_t lastSlash = info.path.find_last_of("/\\");
+          if (lastSlash != std::string::npos) {
+            info.relativePath = info.path.substr(lastSlash + 1);
+          }
+        }
 
-    size_t sizeKeyPos = fileListJson.find("\"size\":", pathValEnd);
-    uint64_t size = 0;
-    if (sizeKeyPos != std::string::npos) {
-      size_t sizeValStart = sizeKeyPos + 7;
-      while (sizeValStart < fileListJson.size() && fileListJson[sizeValStart] == ' ') sizeValStart++;
-      while (sizeValStart < fileListJson.size() &&
-             fileListJson[sizeValStart] >= '0' && fileListJson[sizeValStart] <= '9') {
-        size = size * 10 + (fileListJson[sizeValStart] - '0');
-        sizeValStart++;
+        files.push_back(std::move(info));
+        LOG_DEBUG("[Server] parsed file for transfer: path=%s, size=%llu", files.back().path.c_str(), files.back().size);
       }
     }
-
-    bool isDir = (fileListJson.find("\"isDir\":true", pathValEnd) != std::string::npos &&
-                  fileListJson.find("\"isDir\":true", pathValEnd) < fileListJson.find("}", pathValEnd));
-
-    if (!path.empty() && path.find("__source") == std::string::npos) {
-      ClipboardTransferFileInfo info;
-      info.path = path;
-      info.relativePath = path;
-      size_t lastSlash = path.find_last_of("/\\");
-      if (lastSlash != std::string::npos) {
-        info.relativePath = path.substr(lastSlash + 1);
-      }
-      info.size = size;
-      info.isDir = isDir;
-      files.push_back(std::move(info));
-      LOG_DEBUG("[Server] parsed file for transfer: path=%s, size=%llu", path.c_str(), size);
-    }
-
-    pos = pathValEnd + 1;
+  } catch (const nlohmann::json::exception &e) {
+    LOG_WARN("[Server] failed to parse FileList JSON for delayed rendering: %s", e.what());
   }
 
   if (!files.empty()) {
