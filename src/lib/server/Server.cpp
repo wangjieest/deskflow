@@ -1745,6 +1745,8 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
   if (useDeferredMode && (m_active->capabilities() & kCapDeferredClipboard)) {
     // Send only metadata - client will request actual data when pasting
     m_active->setClipboardMeta(id, clipboard.m_meta);
+    // Mark as sent so switchScreen() won't resend on screen enter
+    markClientHasClipboardData(m_active, id);
     if (format == IClipboard::Format::FileList) {
       LOG_INFO("clipboard %d using deferred mode (FileList always uses P2P)", id);
     } else if (m_maximumClipboardSize == 0) {
