@@ -575,6 +575,11 @@ private:
   //! Start file transfer server for point-to-point transfer
   void startHostFileTransferServer(const std::string &fileListData);
 
+#ifdef _WIN32
+  //! Set up delayed rendering on Windows primary screen for deferred file transfer
+  void setupDelayedRenderingForPrimary(ClipboardInfo &clipboard, ClipboardID id);
+#endif
+
   //! Point-to-point file transfer connection (for fetching files from remote source)
   FileTransferConnection *m_fileTransferConn = nullptr;
 

@@ -693,6 +693,21 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
           m_active->setClipboardMeta(id, clipboard.m_meta);
           continue;
         } else if (clipboard.m_meta.deferred) {
+#ifdef _WIN32
+          // On Windows host: when switching back to primary screen with deferred FileList,
+          // set up delayed rendering instead of sending full data (which is just JSON, not CF_HDROP)
+          IClipboard::Format fmt = static_cast<IClipboard::Format>(clipboard.m_meta.contentType);
+          if (m_active == m_primaryClient && fmt == IClipboard::Format::FileList &&
+              !clipboard.m_meta.sourceAddress.empty() && clipboard.m_meta.sourcePort > 0) {
+            LOG_INFO(
+                "switchScreen: setting up delayed rendering for clipboard %d (source=%s:%u)",
+                id, clipboard.m_meta.sourceAddress.c_str(), clipboard.m_meta.sourcePort
+            );
+            setupDelayedRenderingForPrimary(clipboard, id);
+            markClientHasClipboardData(m_active, id);
+            continue;
+          }
+#endif
           LOG_DEBUG(
               "client \"%s\" does not support deferred clipboard (caps=0x%x), sending full data",
               m_active->getName().c_str(), m_active->capabilities()
@@ -1761,99 +1776,11 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
 #ifdef _WIN32
     // On Windows Host, when active screen is primary (server's own screen)
     // and source has P2P info, use ClipboardTransferThread for non-blocking delayed rendering
-    // Note: Only handle kClipboardClipboard (id=0), not kClipboardSelection (id=1, X11 only)
     if (id == kClipboardClipboard && m_active == m_primaryClient && format == IClipboard::Format::FileList &&
         !clipboard.m_meta.sourceAddress.empty() && clipboard.m_meta.sourcePort > 0) {
-
-      // Ensure ClipboardTransferThread is running
-      if (!m_clipboardTransferThread) {
-        m_clipboardTransferThread = new ClipboardTransferThread();
-      }
-      if (!m_clipboardTransferThread->isRunning()) {
-        m_clipboardTransferThread->start();
-      }
-
-      if (m_clipboardTransferThread && m_clipboardTransferThread->isRunning()) {
-        // Parse file list from clipboard data
-        std::vector<ClipboardTransferFileInfo> files;
-        std::string fileListJson = clipboard.m_clipboard.get(IClipboard::Format::FileList);
-
-        // Parse file entries from JSON - find all "path" and "size" fields
-        // Format: [{"__source":{...}}, {"path":"...", "size":123, ...}, ...]
-        size_t pos = 0;
-        while (pos < fileListJson.size()) {
-          // Find "path":"
-          size_t pathKeyPos = fileListJson.find("\"path\":", pos);
-          if (pathKeyPos == std::string::npos) break;
-
-          // Extract path value
-          size_t pathValStart = fileListJson.find("\"", pathKeyPos + 7);
-          if (pathValStart == std::string::npos) break;
-          pathValStart++; // Skip opening quote
-          size_t pathValEnd = fileListJson.find("\"", pathValStart);
-          if (pathValEnd == std::string::npos) break;
-
-          std::string path = fileListJson.substr(pathValStart, pathValEnd - pathValStart);
-
-          // Find "size":
-          size_t sizeKeyPos = fileListJson.find("\"size\":", pathValEnd);
-          uint64_t size = 0;
-          if (sizeKeyPos != std::string::npos) {
-            size_t sizeValStart = sizeKeyPos + 7;
-            while (sizeValStart < fileListJson.size() && fileListJson[sizeValStart] == ' ') sizeValStart++;
-            while (sizeValStart < fileListJson.size() &&
-                   fileListJson[sizeValStart] >= '0' && fileListJson[sizeValStart] <= '9') {
-              size = size * 10 + (fileListJson[sizeValStart] - '0');
-              sizeValStart++;
-            }
-          }
-
-          // Check if it's a directory
-          bool isDir = (fileListJson.find("\"isDir\":true", pathValEnd) != std::string::npos &&
-                        fileListJson.find("\"isDir\":true", pathValEnd) < fileListJson.find("}", pathValEnd));
-
-          if (!path.empty() && path.find("__source") == std::string::npos) {
-            ClipboardTransferFileInfo info;
-            info.path = path;
-            info.relativePath = path;
-            // Extract just the filename for relative path
-            size_t lastSlash = path.find_last_of("/\\");
-            if (lastSlash != std::string::npos) {
-              info.relativePath = path.substr(lastSlash + 1);
-            }
-            info.size = size;
-            info.isDir = isDir;
-            files.push_back(std::move(info));
-            LOG_DEBUG("[Server] parsed file for transfer: path=%s, size=%llu", path.c_str(), size);
-          }
-
-          pos = pathValEnd + 1;
-        }
-
-        if (!files.empty()) {
-          LOG_INFO(
-              "[Server] using ClipboardTransferThread for %zu files from %s:%u (sessionId=%llu)",
-              files.size(), clipboard.m_meta.sourceAddress.c_str(),
-              clipboard.m_meta.sourcePort, clipboard.m_meta.sessionId
-          );
-
-          // Set up delayed rendering via ClipboardTransferThread
-          m_clipboardTransferThread->setDelayedRenderingFiles(
-              files,
-              clipboard.m_meta.sourceAddress,
-              clipboard.m_meta.sourcePort,
-              clipboard.m_meta.sessionId
-          );
-
-          // Mark the active client as having received the full data
-          markClientHasClipboardData(m_active, id);
-          return; // Skip the normal setClipboard path
-        } else {
-          LOG_WARN("[Server] failed to parse file list, falling back to normal path");
-        }
-      } else {
-        LOG_WARN("[Server] ClipboardTransferThread not available, falling back to blocking path");
-      }
+      setupDelayedRenderingForPrimary(clipboard, id);
+      markClientHasClipboardData(m_active, id);
+      return;
     }
 #endif
     // Deferred mode - don't send full data here, client will request via P2P when pasting
@@ -2922,3 +2849,88 @@ void Server::setListener(ClientListener *p)
     // For now, create listener without factory - will be set via start()
   }
 }
+
+#ifdef _WIN32
+void Server::setupDelayedRenderingForPrimary(ClipboardInfo &clipboard, ClipboardID id)
+{
+  // Ensure ClipboardTransferThread is running
+  if (!m_clipboardTransferThread) {
+    m_clipboardTransferThread = new ClipboardTransferThread();
+  }
+  if (!m_clipboardTransferThread->isRunning()) {
+    m_clipboardTransferThread->start();
+  }
+
+  if (!m_clipboardTransferThread || !m_clipboardTransferThread->isRunning()) {
+    LOG_WARN("[Server] ClipboardTransferThread not available for delayed rendering");
+    return;
+  }
+
+  // Parse file list from clipboard data
+  std::vector<ClipboardTransferFileInfo> files;
+  std::string fileListJson = clipboard.m_clipboard.get(IClipboard::Format::FileList);
+
+  // Parse file entries from JSON
+  size_t pos = 0;
+  while (pos < fileListJson.size()) {
+    size_t pathKeyPos = fileListJson.find("\"path\":", pos);
+    if (pathKeyPos == std::string::npos) break;
+
+    size_t pathValStart = fileListJson.find("\"", pathKeyPos + 7);
+    if (pathValStart == std::string::npos) break;
+    pathValStart++;
+    size_t pathValEnd = fileListJson.find("\"", pathValStart);
+    if (pathValEnd == std::string::npos) break;
+
+    std::string path = fileListJson.substr(pathValStart, pathValEnd - pathValStart);
+
+    size_t sizeKeyPos = fileListJson.find("\"size\":", pathValEnd);
+    uint64_t size = 0;
+    if (sizeKeyPos != std::string::npos) {
+      size_t sizeValStart = sizeKeyPos + 7;
+      while (sizeValStart < fileListJson.size() && fileListJson[sizeValStart] == ' ') sizeValStart++;
+      while (sizeValStart < fileListJson.size() &&
+             fileListJson[sizeValStart] >= '0' && fileListJson[sizeValStart] <= '9') {
+        size = size * 10 + (fileListJson[sizeValStart] - '0');
+        sizeValStart++;
+      }
+    }
+
+    bool isDir = (fileListJson.find("\"isDir\":true", pathValEnd) != std::string::npos &&
+                  fileListJson.find("\"isDir\":true", pathValEnd) < fileListJson.find("}", pathValEnd));
+
+    if (!path.empty() && path.find("__source") == std::string::npos) {
+      ClipboardTransferFileInfo info;
+      info.path = path;
+      info.relativePath = path;
+      size_t lastSlash = path.find_last_of("/\\");
+      if (lastSlash != std::string::npos) {
+        info.relativePath = path.substr(lastSlash + 1);
+      }
+      info.size = size;
+      info.isDir = isDir;
+      files.push_back(std::move(info));
+      LOG_DEBUG("[Server] parsed file for transfer: path=%s, size=%llu", path.c_str(), size);
+    }
+
+    pos = pathValEnd + 1;
+  }
+
+  if (!files.empty()) {
+    LOG_INFO(
+        "[Server] delayed rendering: %zu files from %s:%u (sessionId=%llu)",
+        files.size(), clipboard.m_meta.sourceAddress.c_str(),
+        clipboard.m_meta.sourcePort, clipboard.m_meta.sessionId
+    );
+
+    m_clipboardTransferThread->setDelayedRenderingFiles(
+        files,
+        clipboard.m_meta.sourceAddress,
+        clipboard.m_meta.sourcePort,
+        clipboard.m_meta.sessionId
+    );
+  } else {
+    LOG_WARN("[Server] no files parsed from FileList for delayed rendering");
+  }
+}
+#endif
