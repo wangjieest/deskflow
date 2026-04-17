@@ -14,6 +14,14 @@ pkill -f DeskflowPaste || true
 sleep 1
 
 echo "=== 编译主 App (Release) ==="
+# Re-run cmake if needed (e.g. new dependencies)
+cmake -S. -Bbuild-release \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DQt6_DIR=/opt/homebrew/opt/qt/lib/cmake/Qt6 \
+  -DAPPLE_CODESIGN_DEV="07C2F6CAC8AE4C01B93F9C13C843CD8E473F941A" \
+  -DBUILD_TESTS=OFF \
+  -Dnlohmann_json_DIR=/opt/homebrew/Cellar/nlohmann-json/3.12.0/share/cmake/nlohmann_json \
+  > /dev/null 2>&1
 cmake --build build-release --parallel "$(sysctl -n hw.ncpu)"
 
 echo "=== 部署主 App ==="
