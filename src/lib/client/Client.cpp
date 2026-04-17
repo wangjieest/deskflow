@@ -98,9 +98,7 @@ Client::Client(
     LOG_INFO("[FinderPaste] paste request received, target: %s", targetDir.c_str());
 
     if (!m_clipboardTransferThread || !m_clipboardTransferThread->isRunning()) {
-      LOG_WARN("[FinderPaste] clipboard transfer thread not available (null=%d, running=%d)",
-               m_clipboardTransferThread == nullptr,
-               m_clipboardTransferThread ? m_clipboardTransferThread->isRunning() : 0);
+      LOG_WARN("[FinderPaste] clipboard transfer thread not available");
       return;
     }
 
@@ -109,29 +107,29 @@ Client::Client(
       return;
     }
 
-    LOG_INFO("[FinderPaste] starting file transfer to: %s", targetDir.c_str());
+    LOG_INFO("[FinderPaste] starting async file transfer to: %s", targetDir.c_str());
 
-    // Request files and wait (up to 60s), then update pasteboard
-    std::vector<std::string> paths =
-        m_clipboardTransferThread->requestFilesAndWait(targetDir, 60000);
+    // Snapshot pending files immediately (before clearing state)
+    OSXPasteboardBridge::clearPendingFiles();
+    OSXClipboardFileConverter::clearPendingFiles();
 
-    if (!paths.empty()) {
-      LOG_INFO("[FinderPaste] %zu file(s) transferred to %s", paths.size(), targetDir.c_str());
+    // Run transfer in background thread so socket server returns "OK" immediately
+    // (prevents mouse lag from blocking the socket server thread)
+    ClipboardTransferThread *transferThread = m_clipboardTransferThread;
+    std::thread([this, transferThread, targetDir]() {
+      std::vector<std::string> paths =
+          transferThread->requestFilesAndWait(targetDir, 300000); // 5 min timeout
 
-      // Update macOS pasteboard with actual file URLs
-      std::vector<const char *> cPaths;
-      cPaths.reserve(paths.size());
-      for (const auto &p : paths) {
-        cPaths.push_back(p.c_str());
+      if (!paths.empty()) {
+        LOG_INFO("[FinderPaste] %zu file(s) transferred to %s", paths.size(), targetDir.c_str());
+        std::vector<const char *> cPaths;
+        cPaths.reserve(paths.size());
+        for (const auto &p : paths) cPaths.push_back(p.c_str());
+        updatePasteboardWithFiles(cPaths.data(), static_cast<int>(cPaths.size()));
+      } else {
+        LOG_ERR("[FinderPaste] file transfer failed or timed out");
       }
-      updatePasteboardWithFiles(cPaths.data(), static_cast<int>(cPaths.size()));
-
-      // Clear pending state
-      OSXPasteboardBridge::clearPendingFiles();
-      OSXClipboardFileConverter::clearPendingFiles();
-    } else {
-      LOG_ERR("[FinderPaste] file transfer failed or timed out after 60s");
-    }
+    }).detach();
   });
 #endif
 }

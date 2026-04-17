@@ -255,9 +255,20 @@ static void extLog(NSString *fmt, ...) {
   NSURL *targetURL = [[FIFinderSyncController defaultController] targetedURL];
 
   if (!targetURL) {
-    NSArray *paths = NSSearchPathForDirectoriesInDomains(
-        NSDesktopDirectory, NSUserDomainMask, YES);
-    targetURL = [NSURL fileURLWithPath:paths.firstObject];
+    // Fallback: use currently selected items' parent, or Desktop
+    NSArray *selected = [[FIFinderSyncController defaultController] selectedItemURLs];
+    if (selected.firstObject) {
+      targetURL = [selected.firstObject URLByDeletingLastPathComponent];
+    } else {
+      NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDesktopDirectory, NSUserDomainMask, YES);
+      targetURL = [NSURL fileURLWithPath:paths.firstObject];
+    }
+  }
+
+  // Ensure we have a directory (not a file)
+  BOOL isDir = NO;
+  if ([[NSFileManager defaultManager] fileExistsAtPath:targetURL.path isDirectory:&isDir] && !isDir) {
+    targetURL = [targetURL URLByDeletingLastPathComponent];
   }
 
   NSString *targetPath = [targetURL path];

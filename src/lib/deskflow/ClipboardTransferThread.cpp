@@ -314,49 +314,46 @@ void ClipboardTransferThread::handleRequestFiles(const Message &msg)
     client->setDestinationFolder(msg.destFolder);
   }
 
-  // Track completion
-  auto remaining = std::make_shared<std::atomic<size_t>>(msg.files.size());
-  auto success = std::make_shared<std::atomic<bool>>(true);
-  auto paths = std::make_shared<std::vector<std::string>>();
-  auto pathsMutex = std::make_shared<std::mutex>();
-  auto batchCallback = msg.batchCallback;
-  // Capture destFolder to reset client after batch completes
+  // Download files sequentially in a single background thread to avoid
+  // spawning hundreds of concurrent connections for large batches.
+  auto files = msg.files;
+  auto sourceAddr = msg.sourceAddr;
+  auto port = msg.port;
+  auto sessionId = msg.sessionId;
   auto destFolder = msg.destFolder;
+  auto batchCallback = msg.batchCallback;
 
-  for (const auto &file : msg.files) {
-    if (client) {
+  std::thread([this, client, files, sourceAddr, port, sessionId, destFolder, batchCallback]() {
+    std::vector<std::string> paths;
+    bool allOk = true;
+
+    for (const auto &file : files) {
+      std::mutex m; std::condition_variable cv; bool done = false;
+      bool ok = false; std::string lp;
+
       client->requestFile(
-          msg.sourceAddr, msg.port, msg.sessionId, file.path,
-          [this, client, remaining, success, paths, pathsMutex, batchCallback, destFolder](
-              bool fileSuccess, const std::string &localPath, const std::string &error
-          ) {
-            if (fileSuccess) {
-              std::lock_guard<std::mutex> lock(*pathsMutex);
-              paths->push_back(localPath);
-            } else {
-              success->store(false);
-              LOG_ERR("[ClipboardTransfer] file request failed: %s", error.c_str());
-            }
-
-            size_t left = --(*remaining);
-            if (left == 0) {
-              // All files done - reset destination folder to temp
-              if (client && !destFolder.empty()) {
-                client->setDestinationFolder("");
-              }
-
-              m_pendingRequests--;
-              m_pendingCondition.notify_all();
-
-              if (batchCallback) {
-                std::lock_guard<std::mutex> lock(*pathsMutex);
-                batchCallback(success->load(), *paths);
-              }
-            }
+          sourceAddr, port, sessionId, file.path,
+          [&](bool fileSuccess, const std::string &localPath, const std::string &err) {
+            std::lock_guard<std::mutex> lock(m);
+            ok = fileSuccess; lp = localPath;
+            if (!fileSuccess) LOG_ERR("[ClipboardTransfer] file failed: %s", err.c_str());
+            done = true; cv.notify_one();
           }
       );
+
+      // Wait for this file to complete before starting next
+      std::unique_lock<std::mutex> lock(m);
+      cv.wait_for(lock, std::chrono::seconds(120), [&]{ return done; });
+
+      if (ok) paths.push_back(lp);
+      else allOk = false;
     }
-  }
+
+    if (!destFolder.empty()) client->setDestinationFolder("");
+    m_pendingRequests--;
+    m_pendingCondition.notify_all();
+    if (batchCallback) batchCallback(allOk, paths);
+  }).detach();
 }
 
 void ClipboardTransferThread::postMessage(Message &&msg)
