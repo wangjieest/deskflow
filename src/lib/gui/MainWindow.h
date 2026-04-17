@@ -28,6 +28,7 @@
 class QAction;
 class QMenu;
 class QLocalServer;
+class QPushButton;
 
 class DeskflowApplication;
 class LogDock;
