@@ -2552,83 +2552,25 @@ void Server::startHostFileTransferServer(const std::string &fileListData)
   std::vector<FileTransferFileInfo> files;
 
   // Helper to extract string field from JSON object
-  auto extractString = [](const std::string &json, size_t start, size_t end, const std::string &field) -> std::string {
-    std::string search = "\"" + field + "\":\"";
-    size_t pos = json.find(search, start);
-    if (pos == std::string::npos || pos >= end) return "";
-    pos += search.size();
-    size_t endPos = pos;
-    while (endPos < end && json[endPos] != '"') {
-      if (json[endPos] == '\\' && endPos + 1 < end) endPos += 2;
-      else endPos++;
-    }
-    // Unescape
-    std::string result;
-    for (size_t i = pos; i < endPos; ++i) {
-      if (json[i] == '\\' && i + 1 < endPos) {
-        ++i;
-        if (json[i] == 'n') result += '\n';
-        else if (json[i] == 'r') result += '\r';
-        else if (json[i] == 't') result += '\t';
-        else result += json[i];
-      } else {
-        result += json[i];
+  // Parse file entries using nlohmann::json
+  try {
+    auto json = nlohmann::json::parse(fileListData);
+    if (json.is_array()) {
+      for (const auto &item : json) {
+        if (item.contains("__source")) continue;
+        if (!item.contains("path")) continue;
+
+        FileTransferFileInfo info;
+        info.path = item["path"].get<std::string>();
+        info.relativePath = item.value("relativePath", item.value("name", info.path));
+        info.size = item.value("size", uint64_t(0));
+        info.isDir = item.value("isDir", false);
+        files.push_back(info);
+        LOG_DEBUG("[Server] file for transfer: path=%s, size=%llu, isDir=%d", info.path.c_str(), info.size, info.isDir);
       }
     }
-    return result;
-  };
-
-  auto extractUint64 = [](const std::string &json, size_t start, size_t end, const std::string &field) -> uint64_t {
-    std::string search = "\"" + field + "\":";
-    size_t pos = json.find(search, start);
-    if (pos == std::string::npos || pos >= end) return 0;
-    pos += search.size();
-    while (pos < end && (json[pos] == ' ' || json[pos] == '\t')) pos++;
-    uint64_t val = 0;
-    while (pos < end && json[pos] >= '0' && json[pos] <= '9') {
-      val = val * 10 + (json[pos] - '0');
-      pos++;
-    }
-    return val;
-  };
-
-  auto extractBool = [](const std::string &json, size_t start, size_t end, const std::string &field) -> bool {
-    std::string search = "\"" + field + "\":";
-    size_t pos = json.find(search, start);
-    if (pos == std::string::npos || pos >= end) return false;
-    pos += search.size();
-    while (pos < end && json[pos] == ' ') pos++;
-    return pos < end && json[pos] == 't';
-  };
-
-  // Parse each file entry (skip __source entries)
-  size_t entryStart = 0;
-  while ((entryStart = fileListData.find("{", entryStart)) != std::string::npos) {
-    size_t entryEnd = fileListData.find("}", entryStart);
-    if (entryEnd == std::string::npos) break;
-
-    // Skip __source metadata entry
-    if (fileListData.find("\"__source\"", entryStart) < entryEnd) {
-      entryStart = entryEnd + 1;
-      continue;
-    }
-
-    std::string path = extractString(fileListData, entryStart, entryEnd, "path");
-    std::string relativePath = extractString(fileListData, entryStart, entryEnd, "relativePath");
-    uint64_t size = extractUint64(fileListData, entryStart, entryEnd, "size");
-    bool isDir = extractBool(fileListData, entryStart, entryEnd, "isDir");
-
-    if (!path.empty()) {
-      FileTransferFileInfo info;
-      info.path = path;
-      info.relativePath = relativePath.empty() ? path : relativePath;
-      info.size = size;
-      info.isDir = isDir;
-      files.push_back(info);
-      LOG_DEBUG("[Server] file for transfer: path=%s, size=%llu, isDir=%d", path.c_str(), size, isDir);
-    }
-
-    entryStart = entryEnd + 1;
+  } catch (const nlohmann::json::exception &e) {
+    LOG_WARN("[Server] failed to parse FileList for host transfer server: %s", e.what());
   }
 
   m_fileTransferServer->setSessionFiles(m_currentFileSessionId, files);
