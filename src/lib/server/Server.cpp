@@ -699,13 +699,18 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
           // On Windows host: when switching back to primary screen with deferred FileList,
           // set up delayed rendering instead of sending full data (which is just JSON, not CF_HDROP)
           IClipboard::Format fmt = static_cast<IClipboard::Format>(clipboard.m_meta.contentType);
-          if (m_active == m_primaryClient && fmt == IClipboard::Format::FileList &&
-              !clipboard.m_meta.sourceAddress.empty() && clipboard.m_meta.sourcePort > 0) {
-            LOG_INFO(
-                "switchScreen: setting up delayed rendering for clipboard %d (source=%s:%u)",
-                id, clipboard.m_meta.sourceAddress.c_str(), clipboard.m_meta.sourcePort
-            );
-            setupDelayedRenderingForPrimary(clipboard, id);
+          if (m_active == m_primaryClient && fmt == IClipboard::Format::FileList) {
+            if (id == kClipboardClipboard &&
+                !clipboard.m_meta.sourceAddress.empty() && clipboard.m_meta.sourcePort > 0) {
+              LOG_INFO(
+                  "switchScreen: setting up delayed rendering for clipboard %d (source=%s:%u)",
+                  id, clipboard.m_meta.sourceAddress.c_str(), clipboard.m_meta.sourcePort
+              );
+              setupDelayedRenderingForPrimary(clipboard, id);
+            } else {
+              // Skip clipboard 1 (X11 selection) for FileList on Windows - not meaningful
+              LOG_DEBUG("switchScreen: skipping deferred FileList for clipboard %d on primary", id);
+            }
             markClientHasClipboardData(m_active, id);
             continue;
           }
@@ -1778,9 +1783,12 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
 #ifdef _WIN32
     // On Windows Host, when active screen is primary (server's own screen)
     // and source has P2P info, use ClipboardTransferThread for non-blocking delayed rendering
-    if (id == kClipboardClipboard && m_active == m_primaryClient && format == IClipboard::Format::FileList &&
-        !clipboard.m_meta.sourceAddress.empty() && clipboard.m_meta.sourcePort > 0) {
-      setupDelayedRenderingForPrimary(clipboard, id);
+    if (m_active == m_primaryClient && format == IClipboard::Format::FileList) {
+      if (id == kClipboardClipboard &&
+          !clipboard.m_meta.sourceAddress.empty() && clipboard.m_meta.sourcePort > 0) {
+        setupDelayedRenderingForPrimary(clipboard, id);
+      }
+      // Skip clipboard 1 (X11 selection) FileList on Windows - not meaningful
       markClientHasClipboardData(m_active, id);
       return;
     }
