@@ -2454,6 +2454,9 @@ void Server::updateClipboardMeta(ClipboardInfo &clipboard)
       if (m_fileTransferServer && m_fileTransferServer->isRunning()) {
         clipboard.m_meta.sourceAddress = m_fileTransferServer->getLocalAddress();
         clipboard.m_meta.sourcePort = m_fileTransferServer->getPort();
+        // Critical: use the session ID registered with setSessionFiles, not the
+        // clipboard's small counter ID, so the Mac sends the right sessionId back.
+        clipboard.m_meta.sessionId = m_currentFileSessionId;
         LOG_INFO(
             "[Server] host is clipboard source: address=%s, port=%u, sessionId=%llu",
             clipboard.m_meta.sourceAddress.c_str(), clipboard.m_meta.sourcePort, m_currentFileSessionId
