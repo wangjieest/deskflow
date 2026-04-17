@@ -29,10 +29,6 @@ static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
         [NSSet setWithObject:[NSURL fileURLWithPath:@"/"]];
 
     _toolbarIcon = [NSImage imageNamed:NSImageNameNetwork];
-    [[FIFinderSyncController defaultController] setToolbarItemImage:_toolbarIcon];
-    [[FIFinderSyncController defaultController]
-        setToolbarItemName:@"Deskflow Paste"
-                   toolTip:@"Paste files from remote Deskflow machine"];
 
     // Listen for clipboard updates from main app
     [[NSDistributedNotificationCenter defaultCenter]
@@ -53,8 +49,26 @@ static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
   return self;
 }
 
+// ARC automatically inserts [super dealloc]; suppress the false-positive warning.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wobjc-missing-super-calls"
 - (void)dealloc {
   [[NSDistributedNotificationCenter defaultCenter] removeObserver:self];
+}
+#pragma clang diagnostic pop
+
+#pragma mark - Toolbar Item (FIFinderSync protocol)
+
+- (NSString *)toolbarItemName {
+  return @"Deskflow Paste";
+}
+
+- (NSImage *)toolbarItemImage {
+  return _toolbarIcon;
+}
+
+- (NSString *)toolbarItemToolTip {
+  return @"Paste files from remote Deskflow machine";
 }
 
 #pragma mark - Notification Handler
