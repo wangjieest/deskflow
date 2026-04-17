@@ -5,6 +5,7 @@
  */
 
 #import "FinderSync.h"
+#include <os/log.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -13,6 +14,20 @@ static NSString *const kClipboardUpdateNotification = @"org.deskflow.clipboardUp
 static NSString *const kPasteRequestNotification = @"org.deskflow.pasteRequest";
 static NSString *const kRequestStateNotification = @"org.deskflow.requestClipboardState";
 static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
+
+static os_log_t gExtLog;
+
+static void extLog(NSString *fmt, ...) NS_FORMAT_FUNCTION(1, 2);
+static void extLog(NSString *fmt, ...) {
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{ gExtLog = os_log_create("org.autodeskflow.paste-ext", "paste"); });
+  va_list args;
+  va_start(args, fmt);
+  NSString *msg = [[NSString alloc] initWithFormat:fmt arguments:args];
+  va_end(args);
+  os_log(gExtLog, "%{public}s", msg.UTF8String);
+  NSLog(@"[AutoDeskflowExt] %@", msg);
+}
 
 @implementation DeskflowFinderSync {
   NSImage *_toolbarIcon;
@@ -44,7 +59,7 @@ static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
                     userInfo:nil
          deliverImmediately:YES];
 
-    NSLog(@"[DeskflowFinderSync] initialized, monitoring /");
+    extLog(@"[Ext] initialized, monitoring /");
   }
   return self;
 }
@@ -126,7 +141,7 @@ static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
   NSError *error = nil;
   NSDictionary *state = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
   if (error) {
-    NSLog(@"[DeskflowFinderSync] socket state parse error: %@", error);
+    extLog(@"[Ext] socket state parse error: %@", error);
     return nil;
   }
   return state;
@@ -134,7 +149,10 @@ static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
 
 - (BOOL)sendPasteViaSocket:(NSString *)targetPath {
   int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-  if (fd < 0) return NO;
+  if (fd < 0) {
+    extLog(@"[Ext] sendPaste: socket() failed errno=%d", errno);
+    return NO;
+  }
 
   struct sockaddr_un addr;
   memset(&addr, 0, sizeof(addr));
@@ -142,21 +160,24 @@ static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
   strncpy(addr.sun_path, kSocketPath, sizeof(addr.sun_path) - 1);
 
   if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+    extLog(@"[Ext] sendPaste: connect() failed errno=%d", errno);
     close(fd);
     return NO;
   }
 
   NSString *cmd = [NSString stringWithFormat:@"PASTE:%@", targetPath];
   const char *cmdStr = [cmd UTF8String];
-  write(fd, cmdStr, strlen(cmdStr));
+  ssize_t written = write(fd, cmdStr, strlen(cmdStr));
+  extLog(@"[Ext] sendPaste: sent %zd bytes cmd=%@", written, cmd);
 
-  // Wait for ack
-  char buf[16];
+  // Wait for ack (main app replies OK after accepting the request)
+  char buf[16] = {0};
   struct timeval tv;
   tv.tv_sec = 2;
   tv.tv_usec = 0;
   setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-  read(fd, buf, sizeof(buf));
+  ssize_t n = read(fd, buf, sizeof(buf) - 1);
+  extLog(@"[Ext] sendPaste: ack read=%zd content='%s'", n, buf);
   close(fd);
 
   return YES;
@@ -240,11 +261,11 @@ static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
   }
 
   NSString *targetPath = [targetURL path];
-  NSLog(@"[DeskflowFinderSync] paste to: %@", targetPath);
+  extLog(@"[Ext] paste to: %@", targetPath);
 
   // Primary: send via socket (low latency)
   if ([self sendPasteViaSocket:targetPath]) {
-    NSLog(@"[DeskflowFinderSync] paste request sent via socket");
+    extLog(@"[Ext] paste request sent via socket");
     return;
   }
 
@@ -258,7 +279,7 @@ static const char *kSocketPath = "/tmp/autodeskflow-paste.sock";
                     object:nil
                   userInfo:userInfo
        deliverImmediately:YES];
-  NSLog(@"[DeskflowFinderSync] paste request sent via notification (fallback)");
+  extLog(@"[Ext] paste request sent via notification (fallback)");
 }
 
 @end
