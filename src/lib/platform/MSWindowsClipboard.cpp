@@ -106,8 +106,14 @@ void MSWindowsClipboard::add(Format format, const std::string &data)
     return;
   }
 
-  // Special handling for FileList format using IDataObject streaming
+  // Special handling for FileList format
   if (format == Format::FileList) {
+    // If ClipboardTransferThread already set up delayed rendering, skip entirely.
+    // Re-adding FileList here would conflict and cause clipboard ownership feedback loops.
+    if (MSWindowsClipboardFileConverter::isDelayedRenderingActive()) {
+      LOG_DEBUG("skipping FileList add - delayed rendering already active via ClipboardTransferThread");
+      return;
+    }
     if (addFileListAsIDataObject(data)) {
       LOG_INFO("Successfully added file list using IDataObject streaming");
       return;
