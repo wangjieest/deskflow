@@ -696,34 +696,20 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
           continue;
         } else if (clipboard.m_meta.deferred) {
 #ifdef _WIN32
-          // On Windows host: when switching back to primary screen with deferred FileList,
-          // set up delayed rendering instead of sending full data (which is just JSON, not CF_HDROP)
+          // On Windows host: skip clipboard 1 (X11 selection) FileList entirely - not meaningful
           IClipboard::Format fmt = static_cast<IClipboard::Format>(clipboard.m_meta.contentType);
-          LOG_INFO(
-              "switchScreen: clipboard %d deferred check: isPrimary=%d, fmt=%u, sourceAddr=%s, sourcePort=%u",
-              id, (m_active == m_primaryClient), clipboard.m_meta.contentType,
-              clipboard.m_meta.sourceAddress.c_str(), clipboard.m_meta.sourcePort
-          );
-          if (m_active == m_primaryClient && fmt == IClipboard::Format::FileList) {
-            if (id == kClipboardClipboard &&
-                !clipboard.m_meta.sourceAddress.empty() && clipboard.m_meta.sourcePort > 0) {
-              LOG_INFO(
-                  "switchScreen: setting up delayed rendering for clipboard %d (source=%s:%u)",
-                  id, clipboard.m_meta.sourceAddress.c_str(), clipboard.m_meta.sourcePort
-              );
-              setupDelayedRenderingForPrimary(clipboard, id);
-            } else {
-              LOG_INFO("switchScreen: skipping deferred FileList for clipboard %d on primary", id);
-            }
+          if (m_active == m_primaryClient && fmt == IClipboard::Format::FileList &&
+              id != kClipboardClipboard) {
+            LOG_DEBUG("switchScreen: skipping deferred FileList clipboard %d on primary (X11 selection)", id);
             markClientHasClipboardData(m_active, id);
             continue;
           }
 #endif
           LOG_DEBUG(
-              "client \"%s\" does not support deferred clipboard (caps=0x%x), sending full data",
-              m_active->getName().c_str(), m_active->capabilities()
+              "switchScreen: clipboard %d deferred, sending full data to \"%s\" (caps=0x%x)",
+              id, m_active->getName().c_str(), m_active->capabilities()
           );
-          // Fall through to send full data
+          // Fall through to send full data via setClipboard → converter delayed rendering
         }
 
         // Check size threshold
@@ -1785,14 +1771,10 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
     }
 
 #ifdef _WIN32
-    // On Windows Host, when active screen is primary (server's own screen)
-    // and source has P2P info, use ClipboardTransferThread for non-blocking delayed rendering
-    if (m_active == m_primaryClient && format == IClipboard::Format::FileList) {
-      if (id == kClipboardClipboard &&
-          !clipboard.m_meta.sourceAddress.empty() && clipboard.m_meta.sourcePort > 0) {
-        setupDelayedRenderingForPrimary(clipboard, id);
-      }
-      // Skip clipboard 1 (X11 selection) FileList on Windows - not meaningful
+    // On Windows host: skip clipboard 1 (X11 selection) FileList entirely
+    if (m_active == m_primaryClient && format == IClipboard::Format::FileList &&
+        id != kClipboardClipboard) {
+      LOG_DEBUG("skipping deferred FileList clipboard %d on primary (X11 selection)", id);
       markClientHasClipboardData(m_active, id);
       return;
     }
@@ -1800,9 +1782,10 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
     // Deferred mode - don't send full data here, client will request via P2P when pasting
   } else if (useDeferredMode) {
     // Client doesn't support deferred clipboard - fall back to full data
+    // On Windows primary, this lets the converter set up CF_HDROP delayed rendering
     LOG_DEBUG(
-        "client \"%s\" does not support deferred clipboard (caps=0x%x), falling back to full send",
-        m_active->getName().c_str(), m_active->capabilities()
+        "clipboard %d deferred, sending full data to \"%s\" (caps=0x%x)",
+        id, m_active->getName().c_str(), m_active->capabilities()
     );
     m_active->setClipboard(id, &clipboard.m_clipboard);
     markClientHasClipboardData(m_active, id);
