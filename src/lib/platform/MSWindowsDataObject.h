@@ -164,6 +164,8 @@ private:
   // Clipboard format IDs
   static UINT s_cfFileDescriptor;
   static UINT s_cfFileContents;
+  static UINT s_cfPreferredDropEffect;
+  static UINT s_cfDeskflowOwnership;
   static UINT s_cfRtf;
 
   // Async operation state
