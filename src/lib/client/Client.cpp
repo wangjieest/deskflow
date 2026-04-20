@@ -96,14 +96,23 @@ Client::Client(
   // When user right-clicks in Finder and selects "Deskflow Paste",
   // the extension posts a notification with the target directory.
   OSXPasteboardBridge::startListening([this](const std::string &targetDir) {
+    // File log so we can diagnose without GUI log access
+    auto plog = [](const char *msg) {
+      FILE *f = fopen("/tmp/autodeskflow-paste.log", "a");
+      if (f) { fprintf(f, "%s\n", msg); fclose(f); }
+    };
+    plog(("[FinderPaste] callback: target=" + targetDir).c_str());
     LOG_INFO("[FinderPaste] paste request received, target: %s", targetDir.c_str());
 
     if (!m_clipboardTransferThread || !m_clipboardTransferThread->isRunning()) {
+      plog("[FinderPaste] FAIL: thread null or not running");
       LOG_WARN("[FinderPaste] clipboard transfer thread not available");
       return;
     }
 
-    if (!m_clipboardTransferThread->hasPendingFilesForPaste()) {
+    bool hasPending = m_clipboardTransferThread->hasPendingFilesForPaste();
+    plog(("[FinderPaste] hasPendingFilesForPaste=" + std::string(hasPending ? "true" : "false")).c_str());
+    if (!hasPending) {
       LOG_WARN("[FinderPaste] no pending files in transfer thread");
       return;
     }

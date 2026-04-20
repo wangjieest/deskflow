@@ -763,7 +763,7 @@ void ServerProxy::setClipboardMeta()
         );
 
         // Publish pending files to Finder Sync Extension via shared state file
-        OSXPasteboardBridge::publishPendingFiles(meta.metadata, static_cast<int>(parsedFiles.size()), meta.sourceAddress, meta.sourcePort);
+        OSXPasteboardBridge::publishPendingFiles(meta.metadata, static_cast<int>(parsedFiles.size()), meta.sourceAddress, meta.sourcePort, meta.sessionId);
       } else {
         LOG_WARN("[ServerProxy] ClipboardTransferThread not available or not running - setPendingFilesForPaste SKIPPED");
       }

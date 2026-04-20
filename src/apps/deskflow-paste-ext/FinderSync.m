@@ -90,7 +90,17 @@ static void extLog(NSString *fmt, ...) {
 #pragma mark - Notification Handler
 
 - (void)handleClipboardUpdate:(NSNotification *)note {
-  _cachedState = note.userInfo;
+  // Payload in note.object: "1|<fileCount>|<source>" or "0" (no files)
+  // Using object field for sandbox-safe bidirectional notification protocol.
+  NSString *payload = note.object;
+  if ([payload hasPrefix:@"0"]) {
+    _cachedState = @{@"hasPendingFiles": @NO, @"fileCount": @0, @"source": @""};
+  } else {
+    NSArray *parts = [payload componentsSeparatedByString:@"|"];
+    NSNumber *count = parts.count > 1 ? @([parts[1] integerValue]) : @0;
+    NSString *source = parts.count > 2 ? parts[2] : @"";
+    _cachedState = @{@"hasPendingFiles": @YES, @"fileCount": count, @"source": source};
+  }
   _lastStateCheck = [NSDate date];
 }
 
