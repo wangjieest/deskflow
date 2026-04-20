@@ -55,6 +55,7 @@ static std::string s_lastFilesJson;
 static int s_lastFileCount = 0;
 static std::string s_lastSourceAddress;
 static uint16_t s_lastSourcePort = 0;
+static uint64_t s_lastSessionId = 0;
 static int s_serverSocket = -1;
 static std::thread s_socketThread;
 static bool s_running = false;
@@ -135,6 +136,8 @@ static void socketServerLoop()
     if (ret <= 0) continue;
 
     int clientFd = accept(s_serverSocket, nullptr, nullptr);
+    { FILE *f = fopen("/tmp/autodeskflow-socket.log","a");
+      if (f) { fprintf(f, "accept: fd=%d err=%d\n", clientFd, errno); fclose(f); } }
     if (clientFd < 0) continue;
 
     // Read command from extension
@@ -144,6 +147,10 @@ static void socketServerLoop()
       buf[n] = '\0';
       std::string cmd(buf);
 
+      // File log every command for debugging
+      { FILE *f = fopen("/tmp/autodeskflow-socket.log","a");
+        if (f) { fprintf(f, "cmd(%zd): %s\n", n, cmd.substr(0,40).c_str()); fclose(f); } }
+
       if (cmd == "GET_STATE") {
         // Respond with current clipboard state
         std::string response;
@@ -152,6 +159,7 @@ static void socketServerLoop()
                      std::to_string(s_lastFileCount) +
                      ",\"source\":\"" + s_lastSourceAddress + "\"" +
                      ",\"sourcePort\":" + std::to_string(s_lastSourcePort) +
+                     ",\"sessionId\":" + std::to_string(s_lastSessionId) +
                      ",\"files\":" + s_lastFilesJson + "}";
         } else {
           response = "{\"hasPendingFiles\":false,\"fileCount\":0,\"source\":\"\",\"sourcePort\":0,\"files\":[]}";
@@ -196,12 +204,19 @@ void OSXPasteboardBridge::startListening(PasteCallback callback)
   if (s_pasteObserver) {
     [[NSDistributedNotificationCenter defaultCenter] removeObserver:s_pasteObserver];
   }
+  // Use a dedicated background queue instead of main queue to avoid
+  // Qt event loop integration issues with NSDistributedNotificationCenter.
+  NSOperationQueue *pasteQueue = [[NSOperationQueue alloc] init];
+  pasteQueue.name = @"AutoDeskflow.PasteNotification";
   s_pasteObserver = [[NSDistributedNotificationCenter defaultCenter]
       addObserverForName:kPasteRequestNotification
                   object:nil
-                   queue:[NSOperationQueue mainQueue]
+                   queue:pasteQueue
               usingBlock:^(NSNotification *note) {
                 NSString *targetDir = note.userInfo[@"targetDirectory"];
+                LOG_INFO("[FinderPaste] notification received: target=%s", targetDir ? [targetDir UTF8String] : "(nil)");
+                FILE *f = fopen("/tmp/autodeskflow-paste.log", "a");
+                if (f) { fprintf(f, "[FinderPaste] notification: target=%s\n", targetDir ? [targetDir UTF8String] : "(nil)"); fclose(f); }
                 if (targetDir && s_pasteCallback) {
                   s_pasteCallback(std::string([targetDir UTF8String]));
                 }
@@ -218,7 +233,7 @@ void OSXPasteboardBridge::startListening(PasteCallback callback)
               usingBlock:^(NSNotification *) {
                 // Re-broadcast current state
                 if (s_lastFileCount > 0) {
-                  publishPendingFiles(s_lastFilesJson, s_lastFileCount, s_lastSourceAddress, s_lastSourcePort);
+                  publishPendingFiles(s_lastFilesJson, s_lastFileCount, s_lastSourceAddress, s_lastSourcePort, s_lastSessionId);
                 }
               }];
 
@@ -250,12 +265,14 @@ void OSXPasteboardBridge::stopListening()
 }
 
 void OSXPasteboardBridge::publishPendingFiles(
-    const std::string &filesJson, int fileCount, const std::string &sourceAddress, uint16_t sourcePort)
+    const std::string &filesJson, int fileCount, const std::string &sourceAddress,
+    uint16_t sourcePort, uint64_t sessionId)
 {
   // Cache for socket server and state re-broadcast
   s_lastFilesJson = filesJson;
   s_lastFileCount = fileCount;
   s_lastSourcePort = sourcePort;
+  s_lastSessionId = sessionId;
   // Resolve hostname once on publish (blocking, but only on clipboard change)
   s_lastSourceAddress = sourceAddress.empty() ? sourceAddress : resolveHostname(sourceAddress);
 

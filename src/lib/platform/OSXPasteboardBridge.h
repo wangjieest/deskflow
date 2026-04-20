@@ -31,7 +31,8 @@ public:
   /// can show its menu item. Pure in-memory IPC.
   static void publishPendingFiles(const std::string &filesJson, int fileCount,
                                   const std::string &sourceAddress = "",
-                                  uint16_t sourcePort = 0);
+                                  uint16_t sourcePort = 0,
+                                  uint64_t sessionId = 0);
 
   /// Broadcast that there are no more pending files.
   static void clearPendingFiles();
