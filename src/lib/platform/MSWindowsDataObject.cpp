@@ -8,10 +8,11 @@
 
 #include "base/Log.h"
 #include "deskflow/ClipboardTransferClient.h"
-#include "platform/MSWindowsP2PStream.h"
 
 #include <shlwapi.h>
 #include <strsafe.h>
+#include <thread>
+#include <memory>
 
 // Initialize static members
 UINT MSWindowsDataObject::s_cfFileDescriptor = 0;
@@ -353,16 +354,114 @@ HRESULT MSWindowsDataObject::createFileContents(int fileIndex, STGMEDIUM *pMediu
     return DV_E_FORMATETC;
   }
 
-  // Create lazy-loading P2P stream
-  MSWindowsP2PStream *pStream = new MSWindowsP2PStream(file, m_transferClient);
+  LOG_INFO(
+      "createFileContents[%d]: downloading %S from %s:%u (session=%llu)",
+      fileIndex, file.name.c_str(), file.sourceAddr.c_str(), file.sourcePort, file.sessionId
+  );
 
-  // Fill in STGMEDIUM
+  // Download file to temp directory using a background thread.
+  // We MUST keep pumping COM messages on this thread (the STA thread)
+  // while the download is in progress, otherwise Explorer's COM calls deadlock.
+  HANDLE hDoneEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+  if (!hDoneEvent) {
+    LOG_ERR("createFileContents: CreateEvent failed");
+    return E_FAIL;
+  }
+
+  struct DownloadResult {
+    bool success = false;
+    std::string localPath;
+    std::string error;
+  };
+
+  auto result = std::make_shared<DownloadResult>();
+
+  // Start download on a separate thread
+  ClipboardTransferClient *client = m_transferClient;
+  std::string remotePath = file.remotePath;
+  std::string sourceAddr = file.sourceAddr;
+  uint16_t sourcePort = file.sourcePort;
+  uint64_t sessionId = file.sessionId;
+
+  std::thread downloadThread([=]() {
+    if (client) {
+      client->requestFile(
+          sourceAddr, sourcePort, sessionId, remotePath,
+          [=](bool ok, const std::string &path, const std::string &err) {
+            result->success = ok;
+            result->localPath = path;
+            result->error = err;
+            SetEvent(hDoneEvent);
+          }
+      );
+    } else {
+      result->error = "No transfer client";
+      SetEvent(hDoneEvent);
+    }
+  });
+  downloadThread.detach();
+
+  // Pump COM messages while waiting for download to complete
+  const DWORD timeout = 120000; // 2 minutes max
+  DWORD startTime = GetTickCount();
+  bool downloadDone = false;
+
+  while (!downloadDone) {
+    DWORD elapsed = GetTickCount() - startTime;
+    if (elapsed >= timeout) {
+      LOG_ERR("createFileContents: download timed out after %lu ms", timeout);
+      CloseHandle(hDoneEvent);
+      return E_FAIL;
+    }
+
+    DWORD waitResult = MsgWaitForMultipleObjects(
+        1, &hDoneEvent, FALSE, timeout - elapsed, QS_ALLINPUT
+    );
+
+    if (waitResult == WAIT_OBJECT_0) {
+      // Download complete
+      downloadDone = true;
+    } else if (waitResult == WAIT_OBJECT_0 + 1) {
+      // Windows messages available — pump them for COM
+      MSG msg;
+      while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+      }
+    } else {
+      // Timeout or error
+      LOG_ERR("createFileContents: MsgWaitForMultipleObjects returned %lu", waitResult);
+      CloseHandle(hDoneEvent);
+      return E_FAIL;
+    }
+  }
+
+  CloseHandle(hDoneEvent);
+
+  if (!result->success || result->localPath.empty()) {
+    LOG_ERR("createFileContents: download failed: %s", result->error.c_str());
+    return E_FAIL;
+  }
+
+  LOG_INFO("createFileContents[%d]: downloaded to %s", fileIndex, result->localPath.c_str());
+
+  // Open the downloaded temp file as IStream
+  int wideLen = MultiByteToWideChar(CP_UTF8, 0, result->localPath.c_str(), -1, nullptr, 0);
+  std::wstring widePath(wideLen - 1, 0);
+  MultiByteToWideChar(CP_UTF8, 0, result->localPath.c_str(), -1, widePath.data(), wideLen);
+
+  IStream *pStream = nullptr;
+  HRESULT hr = SHCreateStreamOnFileW(widePath.c_str(), STGM_READ | STGM_SHARE_DENY_NONE, &pStream);
+  if (FAILED(hr) || !pStream) {
+    LOG_ERR("createFileContents: SHCreateStreamOnFile failed: 0x%08X", hr);
+    return hr;
+  }
+
   pMedium->tymed = TYMED_ISTREAM;
-  pMedium->pstm = pStream; // Stream starts with refcount=1
+  pMedium->pstm = pStream;
   pMedium->pUnkForRelease = nullptr;
 
-  LOG_INFO("Created P2P stream for file: %S (size=%llu, addr=%s:%u)", file.name.c_str(), file.size, file.sourceAddr.c_str(), file.sourcePort);
-
+  LOG_INFO("createFileContents[%d]: returning IStream for local file %s", fileIndex, result->localPath.c_str());
   return S_OK;
 }
 
