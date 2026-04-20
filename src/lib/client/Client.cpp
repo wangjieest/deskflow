@@ -35,6 +35,7 @@
 #include "platform/OSXClipboardFileConverter.h"
 #include "platform/OSXPasteboardBridge.h"
 #include "platform/OSXPasteboardPeeker.h"
+#include <dispatch/dispatch.h>
 #endif
 
 #include <QMetaEnum>
@@ -122,10 +123,13 @@ Client::Client(
 
       if (!paths.empty()) {
         LOG_INFO("[FinderPaste] %zu file(s) transferred to %s", paths.size(), targetDir.c_str());
-        std::vector<const char *> cPaths;
-        cPaths.reserve(paths.size());
-        for (const auto &p : paths) cPaths.push_back(p.c_str());
-        updatePasteboardWithFiles(cPaths.data(), static_cast<int>(cPaths.size()));
+        // updatePasteboardWithFiles must run on the main thread (Pasteboard API)
+        dispatch_async(dispatch_get_main_queue(), ^{
+          std::vector<const char *> cPaths;
+          cPaths.reserve(paths.size());
+          for (const auto &p : paths) cPaths.push_back(p.c_str());
+          updatePasteboardWithFiles(cPaths.data(), static_cast<int>(cPaths.size()));
+        });
       } else {
         LOG_ERR("[FinderPaste] file transfer failed or timed out");
       }
