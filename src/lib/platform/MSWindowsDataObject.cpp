@@ -395,54 +395,57 @@ void MSWindowsDataObject::downloadAllFiles()
     return;
   }
 
-  // Count non-directory files
   size_t fileCount = 0;
   for (const auto &f : m_files) {
     if (!f.isDir) fileCount++;
   }
 
-  LOG_INFO("downloadAllFiles: starting batch download of %zu files", fileCount);
+  LOG_INFO("downloadAllFiles: downloading %zu files sequentially", fileCount);
 
-  // Download all files in parallel on a background thread, wait with COM pump
+  // Download all files one by one on a single background thread
   HANDLE hDoneEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
   if (!hDoneEvent) return;
 
-  auto remaining = std::make_shared<std::atomic<size_t>>(fileCount);
   auto localPaths = std::make_shared<std::vector<std::string>>(m_files.size());
+  auto files = m_files; // copy for thread
+  ClipboardTransferClient *client = m_transferClient;
 
-  for (size_t i = 0; i < m_files.size(); ++i) {
-    if (m_files[i].isDir) continue;
+  std::thread([=]() {
+    for (size_t i = 0; i < files.size(); ++i) {
+      if (files[i].isDir) continue;
 
-    const FileMetadata &file = m_files[i];
-    ClipboardTransferClient *client = m_transferClient;
-    size_t idx = i;
+      const FileMetadata &file = files[i];
+      std::atomic<bool> done{false};
 
-    std::thread([=]() {
       client->requestFile(
           file.sourceAddr, file.sourcePort, file.sessionId, file.remotePath,
-          [=](bool ok, const std::string &path, const std::string &err) {
+          [&](bool ok, const std::string &path, const std::string &err) {
             if (ok) {
-              (*localPaths)[idx] = path;
-              LOG_INFO("downloadAllFiles[%zu]: %s → %s", idx, file.remotePath.c_str(), path.c_str());
+              (*localPaths)[i] = path;
+              LOG_INFO("downloadAllFiles[%zu]: %s", i, path.c_str());
             } else {
-              LOG_ERR("downloadAllFiles[%zu]: failed: %s", idx, err.c_str());
+              LOG_ERR("downloadAllFiles[%zu]: %s", i, err.c_str());
             }
-            if (--(*remaining) == 0) {
-              SetEvent(hDoneEvent);
-            }
+            done.store(true);
           }
       );
-    }).detach();
-  }
 
-  // Pump COM messages while waiting
-  const DWORD timeout = 300000; // 5 minutes max
+      // Wait for this file to finish before starting the next
+      while (!done.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+    }
+    SetEvent(hDoneEvent);
+  }).detach();
+
+  // Pump COM messages while waiting for all downloads
+  const DWORD timeout = 300000; // 5 minutes
   DWORD startTime = GetTickCount();
 
   while (true) {
     DWORD elapsed = GetTickCount() - startTime;
     if (elapsed >= timeout) {
-      LOG_ERR("downloadAllFiles: timed out after %lu ms", timeout);
+      LOG_ERR("downloadAllFiles: timed out");
       break;
     }
 
@@ -451,7 +454,7 @@ void MSWindowsDataObject::downloadAllFiles()
     );
 
     if (waitResult == WAIT_OBJECT_0) {
-      break; // All downloads complete
+      break;
     } else if (waitResult == WAIT_OBJECT_0 + 1) {
       MSG msg;
       while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -459,18 +462,17 @@ void MSWindowsDataObject::downloadAllFiles()
         DispatchMessage(&msg);
       }
     } else {
-      break; // Timeout or error
+      break;
     }
   }
 
   CloseHandle(hDoneEvent);
 
-  // Copy results
   for (size_t i = 0; i < m_files.size(); ++i) {
     m_localPaths[i] = (*localPaths)[i];
   }
 
-  LOG_INFO("downloadAllFiles: batch download complete");
+  LOG_INFO("downloadAllFiles: complete (%zu files)", fileCount);
 }
 
 //
