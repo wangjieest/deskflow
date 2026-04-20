@@ -150,11 +150,11 @@ void ClipboardTransferWorker::processLoop()
     }
 
 #ifdef _WIN32
-    // Process Windows messages for clipboard window
-    HWND clipboardWindow = static_cast<HWND>(m_owner->getClipboardWindow());
-    if (clipboardWindow) {
+    // Process ALL Windows messages (not just clipboard window)
+    // OLE clipboard requires a full message pump for COM marshalling
+    {
       MSG winMsg;
-      while (PeekMessage(&winMsg, clipboardWindow, 0, 0, PM_REMOVE)) {
+      while (PeekMessage(&winMsg, nullptr, 0, 0, PM_REMOVE)) {
         TranslateMessage(&winMsg);
         DispatchMessage(&winMsg);
         hadActivity = true;
