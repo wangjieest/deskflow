@@ -672,7 +672,7 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
 
     if (m_enableClipboard) {
       // send the clipboard data to new active screen
-      LOG_INFO("switchScreen: sending clipboard to \"%s\" (isPrimary=%d)", m_active->getName().c_str(), (m_active == m_primaryClient));
+      LOG_DEBUG("switchScreen: sending clipboard to \"%s\" (isPrimary=%d)", m_active->getName().c_str(), (m_active == m_primaryClient));
       for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
         ClipboardInfo &clipboard = m_clipboards[id];
 
@@ -1474,7 +1474,7 @@ void Server::handleClipboardGrabbed(const Event &event, BaseClientProxy *grabber
   }
 
   if (grabber == m_primaryClient && m_active != m_primaryClient) {
-    LOG_INFO("clipboard grabbed while active screen was changed, resending clipboard data");
+    LOG_DEBUG("clipboard grabbed while active screen was changed, resending clipboard data");
     for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
       onClipboardChanged(m_primaryClient, id, m_clipboards[id].m_clipboardSeqNum);
     }
@@ -1774,9 +1774,9 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
     // Mark as sent so switchScreen() won't resend on screen enter
     markClientHasClipboardData(m_active, id);
     if (format == IClipboard::Format::FileList) {
-      LOG_INFO("clipboard %d using deferred mode (FileList always uses P2P)", id);
+      LOG_DEBUG("clipboard %d using deferred mode (FileList always uses P2P)", id);
     } else if (m_maximumClipboardSize == 0) {
-      LOG_INFO("clipboard %d using deferred mode (threshold=0, all formats use P2P)", id);
+      LOG_DEBUG("clipboard %d using deferred mode (threshold=0, all formats use P2P)", id);
     } else {
       LOG_INFO(
           "clipboard %d using deferred mode (size %zu KB >= threshold %zu KB)", id, data.size() / 1024,
@@ -2422,7 +2422,7 @@ void Server::updateClipboardMeta(ClipboardInfo &clipboard)
   if (cb.has(IClipboard::Format::FileList)) {
     // File list content
     std::string fileListData = cb.get(IClipboard::Format::FileList);
-    LOG_INFO("[Server] updateClipboardMeta: FileList data (len=%zu): %.200s", fileListData.size(), fileListData.c_str());
+    LOG_DEBUG("[Server] updateClipboardMeta: FileList data (len=%zu): %.200s", fileListData.size(), fileListData.c_str());
 
     // Parse FileList JSON with nlohmann::json for reliable extraction
     uint32_t fileCount = 0;

@@ -565,7 +565,7 @@ void ClipboardTransferThread::setDelayedRenderingFiles(
 
 void ClipboardTransferThread::handleSetDelayedRendering(const Message &msg)
 {
-  LOG_INFO("[ClipboardTransfer] setting up IDataObject clipboard for %zu files", msg.files.size());
+  LOG_DEBUG("[ClipboardTransfer] setting up IDataObject clipboard for %zu files", msg.files.size());
 
   // Store pending files for cross-platform access
   {
@@ -640,7 +640,7 @@ void ClipboardTransferThread::createClipboardWindow()
     return;
   }
 
-  LOG_INFO("[ClipboardTransfer] clipboard window created: %p", m_clipboardWindow);
+  LOG_DEBUG("[ClipboardTransfer] clipboard window created: %p", m_clipboardWindow);
 }
 
 void ClipboardTransferThread::destroyClipboardWindow()

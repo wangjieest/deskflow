@@ -100,7 +100,7 @@ bool MSWindowsClipboard::empty()
 
 void MSWindowsClipboard::add(Format format, const std::string &data)
 {
-  LOG_INFO("MSWindowsClipboard::add: format=%d, dataLen=%zu, window=%p", format, data.size(), m_window);
+  LOG_DEBUG("MSWindowsClipboard::add: format=%d, dataLen=%zu, window=%p", format, data.size(), m_window);
 
   // exit early if there is no data to prevent spurious "failed to convert clipboard data" errors
   if (data.empty()) {
@@ -160,7 +160,7 @@ void MSWindowsClipboard::add(Format format, const std::string &data)
         SetClipboardData(CF_HDROP, nullptr);
         DWORD err = GetLastError();
         if (err == 0) {
-          LOG_INFO("CF_HDROP delayed rendering set successfully (window=%p)", m_window);
+          LOG_DEBUG("CF_HDROP delayed rendering set successfully (window=%p)", m_window);
           isSucceeded = true;
         } else {
           LOG_ERR("failed to set delayed rendering for CF_HDROP: %lu", err);

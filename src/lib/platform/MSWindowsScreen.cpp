@@ -940,7 +940,7 @@ bool MSWindowsScreen::onEvent(HWND, UINT msg, WPARAM wParam, LPARAM lParam, LRES
     // NOTE: When ClipboardTransferThread is used (the preferred path), WM_RENDERFORMAT
     // goes to its dedicated clipboard window, not here. This is the legacy fallback.
     UINT requestedFormat = static_cast<UINT>(wParam);
-    LOG_INFO("WM_RENDERFORMAT on main thread for format: %u (CF_HDROP=%u)", requestedFormat, CF_HDROP);
+    LOG_DEBUG("WM_RENDERFORMAT on main thread for format: %u (CF_HDROP=%u)", requestedFormat, CF_HDROP);
 
     if (requestedFormat == CF_HDROP && MSWindowsClipboardFileConverter::isDelayedRenderingActive()) {
       LOG_WARN("WM_RENDERFORMAT for CF_HDROP on MAIN THREAD (legacy blocking path)");
