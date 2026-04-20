@@ -15,6 +15,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <shlobj.h>
+#include "platform/MSWindowsDataObject.h"
 #endif
 
 ClipboardTransferThread::ClipboardTransferThread()
@@ -564,9 +565,9 @@ void ClipboardTransferThread::setDelayedRenderingFiles(
 
 void ClipboardTransferThread::handleSetDelayedRendering(const Message &msg)
 {
-  LOG_INFO("[ClipboardTransfer] setting delayed rendering for %zu files", msg.files.size());
+  LOG_INFO("[ClipboardTransfer] setting up IDataObject clipboard for %zu files", msg.files.size());
 
-  // Use the cross-platform pending files storage
+  // Store pending files for cross-platform access
   {
     std::lock_guard<std::mutex> lock(m_pendingFilesMutex);
     m_pendingPasteFiles = msg.files;
@@ -576,27 +577,39 @@ void ClipboardTransferThread::handleSetDelayedRendering(const Message &msg)
     m_completedFilePaths.clear();
   }
 
-  // Open clipboard and set delayed rendering
-  if (m_clipboardWindow && OpenClipboard(m_clipboardWindow)) {
-    EmptyClipboard();
-
-    // IMPORTANT: Set "Deskflow Ownership" format so MSWindowsClipboard::isOwnedByDeskflow() returns true
-    // This prevents the main thread from detecting a "clipboard grab" and interfering with delayed rendering
-    static UINT ownershipFormat = RegisterClipboardFormat(TEXT("Deskflow Ownership"));
-    if (ownershipFormat != 0) {
-      // Just need to set the format with any data (or empty) - the presence of the format is what matters
-      HGLOBAL hOwner = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, 1);
-      if (hOwner) {
-        SetClipboardData(ownershipFormat, hOwner);
-      }
+  // Build FileMetadata list for MSWindowsDataObject
+  std::vector<FileMetadata> fileMetas;
+  for (const auto &f : msg.files) {
+    FileMetadata meta;
+    // Convert UTF-8 name to wide string
+    int wideLen = MultiByteToWideChar(CP_UTF8, 0, f.relativePath.c_str(), -1, nullptr, 0);
+    if (wideLen > 0) {
+      meta.name.resize(wideLen - 1);
+      MultiByteToWideChar(CP_UTF8, 0, f.relativePath.c_str(), -1, meta.name.data(), wideLen);
     }
+    meta.remotePath = f.path;
+    meta.size = f.size;
+    meta.isDir = f.isDir;
+    meta.sourceAddr = msg.sourceAddr;
+    meta.sourcePort = msg.port;
+    meta.sessionId = msg.sessionId;
+    fileMetas.push_back(std::move(meta));
+  }
 
-    SetClipboardData(CF_HDROP, nullptr); // Delayed rendering
-    CloseClipboard();
-    LOG_INFO("[ClipboardTransfer] delayed rendering activated (with ownership marker)");
+  // Get the transfer client from worker
+  ClipboardTransferClient *client = m_worker ? m_worker->getClient() : nullptr;
+
+  // Create IDataObject and set on OLE clipboard
+  // OleSetClipboard uses CFSTR_FILEDESCRIPTORW + CFSTR_FILECONTENTS
+  // Explorer calls GetData(FILECONTENTS, lindex) on paste → IStream downloads on-demand
+  auto *dataObject = new MSWindowsDataObject(fileMetas, client);
+  HRESULT hr = OleSetClipboard(dataObject);
+  dataObject->Release(); // OLE holds its own reference
+
+  if (SUCCEEDED(hr)) {
+    LOG_INFO("[ClipboardTransfer] OleSetClipboard succeeded - %zu files available for paste", fileMetas.size());
   } else {
-    DWORD err = GetLastError();
-    LOG_ERR("[ClipboardTransfer] failed to open clipboard for delayed rendering: %lu", err);
+    LOG_ERR("[ClipboardTransfer] OleSetClipboard failed: 0x%08X", hr);
   }
 }
 
