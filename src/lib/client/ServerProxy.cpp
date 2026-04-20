@@ -765,9 +765,10 @@ void ServerProxy::setClipboardMeta()
         // Publish pending files to Finder Sync Extension via shared state file
         OSXPasteboardBridge::publishPendingFiles(meta.metadata, static_cast<int>(parsedFiles.size()), meta.sourceAddress, meta.sourcePort, meta.sessionId);
 
-        // Set up deferred pasteboard: declare types immediately (Cmd+V visible),
-        // download in background, provideDataForType: returns without blocking.
-        OSXPasteboardBridge::setupDeferredPaste(transferThread);
+        // Pre-download small files for native Cmd+V support.
+        // NSPasteboard deferred rendering (declareTypes:owner:) is not viable —
+        // Finder eagerly queries pasteboard during right-click causing hangs.
+        m_client->triggerAutoDownloadForCmdV(parsedFiles.size(), meta.totalSize);
       } else {
         LOG_WARN("[ServerProxy] ClipboardTransferThread not available or not running - setPendingFilesForPaste SKIPPED");
       }
