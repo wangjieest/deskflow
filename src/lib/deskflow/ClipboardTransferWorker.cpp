@@ -15,6 +15,10 @@
 #include "net/TCPSocketFactory.h"
 
 #ifdef _WIN32
+#include <objbase.h>
+#endif
+
+#ifdef _WIN32
 #include <windows.h>
 #endif
 
@@ -36,6 +40,15 @@ void ClipboardTransferWorker::setInitCallback(InitCallback callback)
 void ClipboardTransferWorker::run()
 {
   LOG_DEBUG("[ClipboardTransfer] Worker::run() in QThread");
+
+#ifdef _WIN32
+  // Initialize OLE for this thread (required for OleSetClipboard)
+  HRESULT oleHr = OleInitialize(nullptr);
+  if (FAILED(oleHr)) {
+    LOG_WARN("[ClipboardTransfer] OleInitialize failed: 0x%08X, falling back to CoInitialize", oleHr);
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  }
+#endif
 
   try {
     // Create our own event queue for this thread
@@ -201,5 +214,10 @@ void ClipboardTransferWorker::cleanup()
   m_events.reset();
 
   m_initialized = false;
+
+#ifdef _WIN32
+  OleUninitialize();
+#endif
+
   LOG_DEBUG("[ClipboardTransfer] Worker cleanup complete");
 }
