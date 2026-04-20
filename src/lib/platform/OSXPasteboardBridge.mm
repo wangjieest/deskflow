@@ -18,8 +18,10 @@
 @interface DeferredPasteProvider : NSObject
 @property (nonatomic) ClipboardTransferThread *transferThread;
 @property (nonatomic, copy) NSString *tempDir;
+@property (atomic) BOOL downloadDone;
+@property (nonatomic) NSArray<NSURL *> *downloadedURLs;
 + (instancetype)providerWithThread:(ClipboardTransferThread *)thread;
-- (void)declarePasteboard;
+- (void)declarePasteboardAndStartDownload;
 @end
 
 @implementation DeferredPasteProvider
@@ -27,59 +29,69 @@
 + (instancetype)providerWithThread:(ClipboardTransferThread *)thread {
   DeferredPasteProvider *p = [DeferredPasteProvider new];
   p.transferThread = thread;
-  // Create temp dir for this session
   char tmpl[] = "/tmp/autodeskflow-paste-XXXXXX";
   char *dir = mkdtemp(tmpl);
   p.tempDir = dir ? [NSString stringWithUTF8String:dir] : NSTemporaryDirectory();
+  p.downloadDone = NO;
   return p;
 }
 
-- (void)declarePasteboard {
+- (void)declarePasteboardAndStartDownload {
+  // 1. Declare types immediately → Cmd+V appears available in Finder
   NSPasteboard *pb = [NSPasteboard generalPasteboard];
-  // Declare deferred types — AppKit will call provideDataForType: on demand
   [pb declareTypes:@[NSPasteboardTypeFileURL, @"NSFilenamesPboardType"] owner:self];
-  LOG_INFO("[DeferredPaste] declared deferred pasteboard types — Cmd+V ready (download on paste)");
-}
+  LOG_INFO("[DeferredPaste] declared pasteboard — Cmd+V visible, download starting...");
 
-// Called synchronously by AppKit when the user actually pastes (Cmd+V / Edit→Paste)
-- (void)pasteboard:(NSPasteboard *)sender provideDataForType:(NSPasteboardType)type {
-  LOG_INFO("[DeferredPaste] provideDataForType: %s — downloading now...", [type UTF8String]);
+  // 2. Start download in background — do NOT block
+  ClipboardTransferThread *thread = self.transferThread;
+  std::string dest = self.tempDir ? std::string([self.tempDir UTF8String]) : "/tmp";
+  DeferredPasteProvider *weakSelf = self; // strong ref OK — block lifetime tied to download
 
-  if (!self.transferThread || !self.transferThread->hasPendingFilesForPaste()) {
-    LOG_WARN("[DeferredPaste] no pending files when paste was triggered");
-    return;
-  }
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    auto paths = thread->requestFilesAndWait(dest, 60000);
+    DeferredPasteProvider *strongSelf = weakSelf;
+    if (!strongSelf || paths.empty()) return;
 
-  std::string destFolder = self.tempDir ? std::string([self.tempDir UTF8String]) : "/tmp";
-  auto paths = self.transferThread->requestFilesAndWait(destFolder, 30000);
-
-  if (paths.empty()) {
-    LOG_ERR("[DeferredPaste] download failed or timed out");
-    return;
-  }
-
-  LOG_INFO("[DeferredPaste] downloaded %zu file(s) to %s", paths.size(), destFolder.c_str());
-
-  if ([type isEqualToString:NSPasteboardTypeFileURL]) {
     NSMutableArray<NSURL *> *urls = [NSMutableArray arrayWithCapacity:paths.size()];
     for (const auto &p : paths) {
       NSURL *url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:p.c_str()]];
       if (url) [urls addObject:url];
     }
-    // Write file URLs to pasteboard so Finder copies them to the paste destination
-    [sender clearContents];
-    [sender writeObjects:urls];
+    strongSelf.downloadedURLs = urls;
+    strongSelf.downloadDone = YES;
+    LOG_INFO("[DeferredPaste] download complete: %zu file(s), Cmd+V ready", paths.size());
+  });
+}
+
+// Called by AppKit when data is requested (e.g. user Cmd+V).
+// MUST NOT block — return immediately if not ready.
+- (void)pasteboard:(NSPasteboard *)sender provideDataForType:(NSPasteboardType)type {
+  LOG_INFO("[DeferredPaste] provideDataForType: %s (done=%d)", [type UTF8String], (int)self.downloadDone);
+
+  if (!self.downloadDone || !self.downloadedURLs) {
+    // Download not ready — return without data (Finder will show empty paste briefly)
+    // The download will finish shortly and the next Cmd+V attempt will succeed.
+    LOG_WARN("[DeferredPaste] download not ready yet, returning empty");
+    return;
+  }
+
+  // Provide downloaded file URLs for the requested type
+  if ([type isEqualToString:NSPasteboardTypeFileURL]) {
+    // Use setData:forType: (NOT clearContents + writeObjects inside provideDataForType!)
+    NSMutableArray<NSString *> *urlStrings = [NSMutableArray arrayWithCapacity:self.downloadedURLs.count];
+    for (NSURL *url in self.downloadedURLs)
+      [urlStrings addObject:[url absoluteString]];
+    [sender setPropertyList:urlStrings forType:NSPasteboardTypeFileURL];
   } else if ([type isEqualToString:@"NSFilenamesPboardType"]) {
-    NSMutableArray<NSString *> *filePaths = [NSMutableArray arrayWithCapacity:paths.size()];
-    for (const auto &p : paths)
-      [filePaths addObject:[NSString stringWithUTF8String:p.c_str()]];
-    [sender setPropertyList:filePaths forType:@"NSFilenamesPboardType"];
+    NSMutableArray<NSString *> *paths = [NSMutableArray arrayWithCapacity:self.downloadedURLs.count];
+    for (NSURL *url in self.downloadedURLs)
+      [paths addObject:[url path]];
+    [sender setPropertyList:paths forType:@"NSFilenamesPboardType"];
   }
 }
 
-// Called when another app takes ownership of the pasteboard
 - (void)pasteboardChangedOwner:(NSPasteboard *)sender {
-  LOG_DEBUG("[DeferredPaste] pasteboard ownership lost");
+  LOG_DEBUG("[DeferredPaste] pasteboard ownership changed");
   self.transferThread = nullptr;
 }
 @end
@@ -422,10 +434,11 @@ void OSXPasteboardBridge::updatePasteboardForCmdV(const std::vector<std::string>
 void OSXPasteboardBridge::setupDeferredPaste(void *transferThreadPtr)
 {
   ClipboardTransferThread *thread = static_cast<ClipboardTransferThread *>(transferThreadPtr);
+  // Run on background queue — NSPasteboard is thread-safe on modern macOS
   dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
     @autoreleasepool {
       s_deferredProvider = [DeferredPasteProvider providerWithThread:thread];
-      [s_deferredProvider declarePasteboard];
+      [s_deferredProvider declarePasteboardAndStartDownload];
     }
   });
 }
