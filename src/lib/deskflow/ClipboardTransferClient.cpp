@@ -86,13 +86,21 @@ void ClipboardTransferClient::requestFile(
   uint32_t requestId = generateRequestId();
 
   std::thread([sourceAddr, port, sessionId, remotePath, requestId, callback, destFolder, this]() {
+    // File log for debugging (visible without GUI)
+    auto flog = [&](const char* fmt, ...) {
+      char buf[512]; va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
+      LOG_INFO("%s", buf);
+      FILE *f = fopen("/tmp/autodeskflow-transfer.log", "a");
+      if (f) { fprintf(f, "%s\n", buf); fclose(f); }
+    };
+    flog("[Transfer] start: %s:%u session=%llu path=%s", sourceAddr.c_str(), port, sessionId, remotePath.c_str());
     // --- plain POSIX blocking connect ---
     struct addrinfo hints{}, *res = nullptr;
     hints.ai_family   = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     std::string portStr = std::to_string(port);
     if (getaddrinfo(sourceAddr.c_str(), portStr.c_str(), &hints, &res) != 0 || !res) {
-      LOG_ERR("[ClipboardTransferClient] DNS resolve failed for %s", sourceAddr.c_str());
+      flog("[Transfer] DNS resolve FAILED for %s", sourceAddr.c_str());
       if (callback) callback(false, "", "DNS resolve failed");
       return;
     }
@@ -113,12 +121,12 @@ void ClipboardTransferClient::requestFile(
     if (connect(fd, res->ai_addr, static_cast<socklen_t>(res->ai_addrlen)) != 0) {
       freeaddrinfo(res);
       closesocket(fd);
-      LOG_ERR("[ClipboardTransferClient] connect to %s:%u failed", sourceAddr.c_str(), port);
+      flog("[Transfer] CONNECT FAILED %s:%u", sourceAddr.c_str(), port);
       if (callback) callback(false, "", "connect failed");
       return;
     }
     freeaddrinfo(res);
-    LOG_INFO("[ClipboardTransferClient] connected to %s:%u", sourceAddr.c_str(), port);
+    flog("[Transfer] connected to %s:%u", sourceAddr.c_str(), port);
 
     // --- send P2P request ---
     // Format: "P2P " + sessionId(8BE) + requestId(4BE) + pathLen(4BE) + path
@@ -147,12 +155,12 @@ void ClipboardTransferClient::requestFile(
       // Wire: pktLen(4) + "DFCH"(4) + reqId(4) + chunkType(1) + dataLen(4) + data(N)
       uint8_t lenBuf[4];
       if (!recvAll(fd, lenBuf, 4)) {
-        LOG_ERR("[ClipboardTransferClient] failed to read packet length (errno=%d)", errno);
+        flog("[Transfer] FAILED read packet length (errno=%d)", errno);
         break;
       }
       uint32_t pktLen = (uint32_t(lenBuf[0])<<24)|(uint32_t(lenBuf[1])<<16)|(uint32_t(lenBuf[2])<<8)|lenBuf[3];
       if (pktLen < 9 || pktLen > 64*1024*1024) {
-        LOG_ERR("[ClipboardTransferClient] bad packet length %u (bytes: %02x%02x%02x%02x)",
+        flog("[Transfer] BAD packet length %u (bytes: %02x%02x%02x%02x)",
                 pktLen, lenBuf[0], lenBuf[1], lenBuf[2], lenBuf[3]);
         break;
       }
@@ -162,7 +170,7 @@ void ClipboardTransferClient::requestFile(
         break;
       }
       if (pkt[0]!='D'||pkt[1]!='F'||pkt[2]!='C'||pkt[3]!='H') {
-        LOG_ERR("[ClipboardTransferClient] bad chunk magic: %02x%02x%02x%02x", pkt[0],pkt[1],pkt[2],pkt[3]);
+        flog("[Transfer] BAD chunk magic: %02x%02x%02x%02x", pkt[0],pkt[1],pkt[2],pkt[3]);
         break;
       }
       uint32_t rId      = (uint32_t(pkt[4])<<24)|(uint32_t(pkt[5])<<16)|(uint32_t(pkt[6])<<8)|pkt[7];
@@ -174,7 +182,7 @@ void ClipboardTransferClient::requestFile(
 
       if (chunkType == static_cast<uint8_t>(FileChunkType::Error)) {
         std::string errMsg(reinterpret_cast<const char*>(data), dataLen);
-        LOG_ERR("[ClipboardTransferClient] server error: %s", errMsg.c_str());
+        flog("[Transfer] SERVER ERROR: %s", errMsg.c_str());
         break;
       }
       if (chunkType == static_cast<uint8_t>(FileChunkType::Start)) {
@@ -188,7 +196,7 @@ void ClipboardTransferClient::requestFile(
         localPath = dir + fileName + ".pasting";
         // Remove any leftover temp file
         ::unlink(localPath.c_str());
-        LOG_INFO("[ClipboardTransferClient] receiving file to: %s", localPath.c_str());
+        flog("[Transfer] writing to: %s", localPath.c_str());
         continue;
       }
       if (chunkType == static_cast<uint8_t>(FileChunkType::Data)) {
@@ -201,7 +209,7 @@ void ClipboardTransferClient::requestFile(
         std::string finalPath = localPath.substr(0, localPath.size() - 8); // strip ".pasting"
         ::rename(localPath.c_str(), finalPath.c_str());
         localPath = finalPath;
-        LOG_INFO("[ClipboardTransferClient] file received: %s", localPath.c_str());
+        flog("[Transfer] DONE: %s", localPath.c_str());
         success = true;
         break;
       }

@@ -280,20 +280,15 @@ void OSXPasteboardBridge::publishPendingFiles(
   // Resolve hostname once on publish (blocking, but only on clipboard change)
   s_lastSourceAddress = sourceAddress.empty() ? sourceAddress : resolveHostname(sourceAddress);
 
-  // Broadcast via notification (for extensions that use notification path)
+  // Broadcast via notification using 'object' field (consistent with paste direction).
+  // Both directions use object for sandbox compatibility.
+  // Format: "1|<fileCount>|<source>" (1=hasPending)
   @autoreleasepool {
-    NSDictionary *userInfo = @{
-      @"hasPendingFiles" : @YES,
-      @"fileCount" : @(fileCount),
-      @"source" : [NSString stringWithUTF8String:sourceAddress.c_str()],
-      @"filesJson" : [NSString stringWithUTF8String:filesJson.c_str()],
-      @"timestamp" : @([[NSDate date] timeIntervalSince1970])
-    };
-
+    NSString *payload = [NSString stringWithFormat:@"1|%d|%s", fileCount, sourceAddress.c_str()];
     [[NSDistributedNotificationCenter defaultCenter]
         postNotificationName:kClipboardUpdateNotification
-                      object:nil
-                    userInfo:userInfo
+                      object:payload
+                    userInfo:nil
          deliverImmediately:YES];
   }
 
@@ -309,16 +304,11 @@ void OSXPasteboardBridge::clearPendingFiles()
   s_lastFileCount = 0;
 
   @autoreleasepool {
-    NSDictionary *userInfo = @{
-      @"hasPendingFiles" : @NO,
-      @"fileCount" : @0,
-      @"timestamp" : @([[NSDate date] timeIntervalSince1970])
-    };
-
+    // "0" = no pending files
     [[NSDistributedNotificationCenter defaultCenter]
         postNotificationName:kClipboardUpdateNotification
-                      object:nil
-                    userInfo:userInfo
+                      object:@"0"
+                    userInfo:nil
          deliverImmediately:YES];
   }
 
