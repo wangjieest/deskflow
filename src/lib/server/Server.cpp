@@ -702,11 +702,19 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
           continue;
         } else if (clipboard.m_meta.deferred) {
 #ifdef _WIN32
-          // On Windows host: skip clipboard 1 (X11 selection) FileList entirely - not meaningful
           IClipboard::Format fmt = static_cast<IClipboard::Format>(clipboard.m_meta.contentType);
-          if (m_active == m_primaryClient && fmt == IClipboard::Format::FileList &&
-              id != kClipboardClipboard) {
-            LOG_INFO("switchScreen: skipping deferred FileList clipboard %d on primary (X11 selection)", id);
+          if (m_active == m_primaryClient && fmt == IClipboard::Format::FileList) {
+            if (id == kClipboardClipboard &&
+                !clipboard.m_meta.sourceAddress.empty() && clipboard.m_meta.sourcePort > 0) {
+              // Use ClipboardTransferThread for non-blocking delayed rendering
+              LOG_INFO(
+                  "switchScreen: using ClipboardTransferThread for clipboard %d (source=%s:%u)",
+                  id, clipboard.m_meta.sourceAddress.c_str(), clipboard.m_meta.sourcePort
+              );
+              setupDelayedRenderingForPrimary(clipboard, id);
+            } else {
+              LOG_DEBUG("switchScreen: skipping deferred FileList clipboard %d on primary", id);
+            }
             markClientHasClipboardData(m_active, id);
             continue;
           }
@@ -715,7 +723,7 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
               "switchScreen: clipboard %d deferred, sending full data to \"%s\" (caps=0x%x)",
               id, m_active->getName().c_str(), m_active->capabilities()
           );
-          // Fall through to send full data via setClipboard → converter delayed rendering
+          // Fall through to send full data via setClipboard
         }
 
         // Check size threshold
@@ -1796,6 +1804,19 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
     m_active->setClipboard(id, &clipboard.m_clipboard);
     markClientHasClipboardData(m_active, id);
   } else {
+#ifdef _WIN32
+    // On Windows, when setting FileList on primary client (server's own screen)
+    // and source has P2P info, use ClipboardTransferThread for non-blocking delayed rendering
+    // This is the PREFERRED path — WM_RENDERFORMAT goes to ClipboardTransferThread's window,
+    // not the main thread, so mouse/keyboard are not blocked during file download.
+    if (m_active == m_primaryClient && format == IClipboard::Format::FileList &&
+        !clipboard.m_meta.sourceAddress.empty() && clipboard.m_meta.sourcePort > 0) {
+      setupDelayedRenderingForPrimary(clipboard, id);
+      markClientHasClipboardData(m_active, id);
+      return; // Skip the normal setClipboard path
+    }
+#endif
+
     // Send full clipboard data immediately (for all formats including Text, HTML, etc.)
     m_active->setClipboard(id, &clipboard.m_clipboard);
 
