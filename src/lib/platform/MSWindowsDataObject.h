@@ -171,4 +171,11 @@ private:
   // Async operation state
   BOOL m_asyncMode;
   BOOL m_inOperation;
+
+  // Batch download state: download all files on first GetData(FILECONTENTS)
+  bool m_batchDownloaded = false;
+  std::vector<std::string> m_localPaths; // index matches m_files
+
+  //! Download all files to temp directory in one batch
+  void downloadAllFiles();
 };

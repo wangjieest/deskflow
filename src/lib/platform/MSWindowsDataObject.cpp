@@ -348,70 +348,102 @@ HRESULT MSWindowsDataObject::createFileContents(int fileIndex, STGMEDIUM *pMediu
 {
   const FileMetadata &file = m_files[fileIndex];
 
-  // Skip directories - they don't have content
   if (file.isDir) {
     LOG_DEBUG("Skipping directory: %S", file.name.c_str());
     return DV_E_FORMATETC;
   }
 
-  LOG_INFO(
-      "createFileContents[%d]: downloading %S from %s:%u (session=%llu)",
-      fileIndex, file.name.c_str(), file.sourceAddr.c_str(), file.sourcePort, file.sessionId
-  );
+  // Batch download all files on the first GetData(FILECONTENTS) call
+  if (!m_batchDownloaded) {
+    downloadAllFiles();
+  }
 
-  // Download file to temp directory using a background thread.
-  // We MUST keep pumping COM messages on this thread (the STA thread)
-  // while the download is in progress, otherwise Explorer's COM calls deadlock.
-  HANDLE hDoneEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
-  if (!hDoneEvent) {
-    LOG_ERR("createFileContents: CreateEvent failed");
+  // Check if this file was downloaded successfully
+  if (fileIndex >= static_cast<int>(m_localPaths.size()) || m_localPaths[fileIndex].empty()) {
+    LOG_ERR("createFileContents[%d]: file not downloaded", fileIndex);
     return E_FAIL;
   }
 
-  struct DownloadResult {
-    bool success = false;
-    std::string localPath;
-    std::string error;
-  };
+  const std::string &localPath = m_localPaths[fileIndex];
+  LOG_INFO("createFileContents[%d]: returning IStream for %s", fileIndex, localPath.c_str());
 
-  auto result = std::make_shared<DownloadResult>();
+  // Open the downloaded temp file as IStream
+  int wideLen = MultiByteToWideChar(CP_UTF8, 0, localPath.c_str(), -1, nullptr, 0);
+  std::wstring widePath(wideLen - 1, 0);
+  MultiByteToWideChar(CP_UTF8, 0, localPath.c_str(), -1, widePath.data(), wideLen);
 
-  // Start download on a separate thread
-  ClipboardTransferClient *client = m_transferClient;
-  std::string remotePath = file.remotePath;
-  std::string sourceAddr = file.sourceAddr;
-  uint16_t sourcePort = file.sourcePort;
-  uint64_t sessionId = file.sessionId;
+  IStream *pStream = nullptr;
+  HRESULT hr = SHCreateStreamOnFileW(widePath.c_str(), STGM_READ | STGM_SHARE_DENY_NONE, &pStream);
+  if (FAILED(hr) || !pStream) {
+    LOG_ERR("createFileContents[%d]: SHCreateStreamOnFile failed: 0x%08X", fileIndex, hr);
+    return hr;
+  }
 
-  std::thread downloadThread([=]() {
-    if (client) {
+  pMedium->tymed = TYMED_ISTREAM;
+  pMedium->pstm = pStream;
+  pMedium->pUnkForRelease = nullptr;
+  return S_OK;
+}
+
+void MSWindowsDataObject::downloadAllFiles()
+{
+  m_batchDownloaded = true;
+  m_localPaths.resize(m_files.size());
+
+  if (!m_transferClient) {
+    LOG_ERR("downloadAllFiles: no transfer client");
+    return;
+  }
+
+  // Count non-directory files
+  size_t fileCount = 0;
+  for (const auto &f : m_files) {
+    if (!f.isDir) fileCount++;
+  }
+
+  LOG_INFO("downloadAllFiles: starting batch download of %zu files", fileCount);
+
+  // Download all files in parallel on a background thread, wait with COM pump
+  HANDLE hDoneEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+  if (!hDoneEvent) return;
+
+  auto remaining = std::make_shared<std::atomic<size_t>>(fileCount);
+  auto localPaths = std::make_shared<std::vector<std::string>>(m_files.size());
+
+  for (size_t i = 0; i < m_files.size(); ++i) {
+    if (m_files[i].isDir) continue;
+
+    const FileMetadata &file = m_files[i];
+    ClipboardTransferClient *client = m_transferClient;
+    size_t idx = i;
+
+    std::thread([=]() {
       client->requestFile(
-          sourceAddr, sourcePort, sessionId, remotePath,
+          file.sourceAddr, file.sourcePort, file.sessionId, file.remotePath,
           [=](bool ok, const std::string &path, const std::string &err) {
-            result->success = ok;
-            result->localPath = path;
-            result->error = err;
-            SetEvent(hDoneEvent);
+            if (ok) {
+              (*localPaths)[idx] = path;
+              LOG_INFO("downloadAllFiles[%zu]: %s → %s", idx, file.remotePath.c_str(), path.c_str());
+            } else {
+              LOG_ERR("downloadAllFiles[%zu]: failed: %s", idx, err.c_str());
+            }
+            if (--(*remaining) == 0) {
+              SetEvent(hDoneEvent);
+            }
           }
       );
-    } else {
-      result->error = "No transfer client";
-      SetEvent(hDoneEvent);
-    }
-  });
-  downloadThread.detach();
+    }).detach();
+  }
 
-  // Pump COM messages while waiting for download to complete
-  const DWORD timeout = 120000; // 2 minutes max
+  // Pump COM messages while waiting
+  const DWORD timeout = 300000; // 5 minutes max
   DWORD startTime = GetTickCount();
-  bool downloadDone = false;
 
-  while (!downloadDone) {
+  while (true) {
     DWORD elapsed = GetTickCount() - startTime;
     if (elapsed >= timeout) {
-      LOG_ERR("createFileContents: download timed out after %lu ms", timeout);
-      CloseHandle(hDoneEvent);
-      return E_FAIL;
+      LOG_ERR("downloadAllFiles: timed out after %lu ms", timeout);
+      break;
     }
 
     DWORD waitResult = MsgWaitForMultipleObjects(
@@ -419,50 +451,26 @@ HRESULT MSWindowsDataObject::createFileContents(int fileIndex, STGMEDIUM *pMediu
     );
 
     if (waitResult == WAIT_OBJECT_0) {
-      // Download complete
-      downloadDone = true;
+      break; // All downloads complete
     } else if (waitResult == WAIT_OBJECT_0 + 1) {
-      // Windows messages available — pump them for COM
       MSG msg;
       while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
       }
     } else {
-      // Timeout or error
-      LOG_ERR("createFileContents: MsgWaitForMultipleObjects returned %lu", waitResult);
-      CloseHandle(hDoneEvent);
-      return E_FAIL;
+      break; // Timeout or error
     }
   }
 
   CloseHandle(hDoneEvent);
 
-  if (!result->success || result->localPath.empty()) {
-    LOG_ERR("createFileContents: download failed: %s", result->error.c_str());
-    return E_FAIL;
+  // Copy results
+  for (size_t i = 0; i < m_files.size(); ++i) {
+    m_localPaths[i] = (*localPaths)[i];
   }
 
-  LOG_INFO("createFileContents[%d]: downloaded to %s", fileIndex, result->localPath.c_str());
-
-  // Open the downloaded temp file as IStream
-  int wideLen = MultiByteToWideChar(CP_UTF8, 0, result->localPath.c_str(), -1, nullptr, 0);
-  std::wstring widePath(wideLen - 1, 0);
-  MultiByteToWideChar(CP_UTF8, 0, result->localPath.c_str(), -1, widePath.data(), wideLen);
-
-  IStream *pStream = nullptr;
-  HRESULT hr = SHCreateStreamOnFileW(widePath.c_str(), STGM_READ | STGM_SHARE_DENY_NONE, &pStream);
-  if (FAILED(hr) || !pStream) {
-    LOG_ERR("createFileContents: SHCreateStreamOnFile failed: 0x%08X", hr);
-    return hr;
-  }
-
-  pMedium->tymed = TYMED_ISTREAM;
-  pMedium->pstm = pStream;
-  pMedium->pUnkForRelease = nullptr;
-
-  LOG_INFO("createFileContents[%d]: returning IStream for local file %s", fileIndex, result->localPath.c_str());
-  return S_OK;
+  LOG_INFO("downloadAllFiles: batch download complete");
 }
 
 //
