@@ -59,6 +59,9 @@ static uint64_t s_lastSessionId = 0;
 static int s_serverSocket = -1;
 static std::thread s_socketThread;
 static bool s_running = false;
+static dispatch_source_t s_cmdFileSource = nil;
+// Command file written by the sandboxed extension (can't connect to socket due to EPERM)
+static const char *kCmdFilePath = "/tmp/autodeskflow-paste-cmd.txt";
 
 #pragma mark - Debug State File
 
@@ -213,7 +216,8 @@ void OSXPasteboardBridge::startListening(PasteCallback callback)
                   object:nil
                    queue:pasteQueue
               usingBlock:^(NSNotification *note) {
-                NSString *targetDir = note.userInfo[@"targetDirectory"];
+                // Target dir is in note.object (sandboxed apps can't send userInfo)
+                NSString *targetDir = note.object ?: note.userInfo[@"targetDirectory"];
                 LOG_INFO("[FinderPaste] notification received: target=%s", targetDir ? [targetDir UTF8String] : "(nil)");
                 FILE *f = fopen("/tmp/autodeskflow-paste.log", "a");
                 if (f) { fprintf(f, "[FinderPaste] notification: target=%s\n", targetDir ? [targetDir UTF8String] : "(nil)"); fclose(f); }
