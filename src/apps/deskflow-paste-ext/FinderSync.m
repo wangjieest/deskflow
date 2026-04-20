@@ -267,11 +267,6 @@ static void extLog(NSString *fmt, ...) {
 
 - (void)pasteFromDeskflow:(id)sender {
   NSLog(@"[DeskflowFinderSync] pasteFromDeskflow: called");
-  // Step log
-  NSArray *d0 = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-  NSString *slog = [d0.firstObject stringByAppendingPathComponent:@"steps.log"];
-  void (^S)(NSString *) = ^(NSString *s){ NSString *l=[s stringByAppendingString:@"\n"]; NSFileHandle *f=[NSFileHandle fileHandleForWritingAtPath:slog]; if(!f){[@"" writeToFile:slog atomically:NO encoding:NSUTF8StringEncoding error:nil];f=[NSFileHandle fileHandleForWritingAtPath:slog];} [f seekToEndOfFile];[f writeData:[l dataUsingEncoding:NSUTF8StringEncoding]];[f closeFile]; };
-  S(@"A: entered");
 
   // Resolve target directory safely
   NSString *targetPath = nil;
@@ -292,23 +287,16 @@ static void extLog(NSString *fmt, ...) {
     NSLog(@"[DeskflowFinderSync] exception getting target: %@", e);
   }
   if (!targetPath) targetPath = NSHomeDirectory();
-  S([NSString stringWithFormat:@"B: targetPath=%@", targetPath]);
   NSLog(@"[DeskflowFinderSync] paste to: %@", targetPath);
 
-  // Use NSDistributedNotification — sandbox allows this, unlike Unix socket connect()
-  // (errno=1/EPERM blocks socket connect from sandboxed extension to /tmp)
-  S(@"C: sending via notification");
-  NSDictionary *userInfo = @{
-    @"targetDirectory" : targetPath,
-    @"timestamp" : @([[NSDate date] timeIntervalSince1970])
-  };
+  // Sandboxed apps cannot post NSDistributedNotification with userInfo (silently dropped
+  // by the system since macOS 10.15). Use 'object' field instead — allowed from sandbox.
   [[NSDistributedNotificationCenter defaultCenter]
       postNotificationName:kPasteRequestNotification
-                    object:nil
-                  userInfo:userInfo
+                    object:targetPath
+                  userInfo:nil
        deliverImmediately:YES];
-  S(@"D: notification sent");
-  extLog(@"[Ext] paste request sent via notification to %@", targetPath);
+  extLog(@"[Ext] paste request sent: target=%@", targetPath);
 }
 
 @end
