@@ -1117,3 +1117,43 @@ bool Client::injectSourceInfoToClipboard(const IClipboard &src, Clipboard &dst)
 
   return true;
 }
+
+#if defined(__APPLE__)
+void Client::triggerAutoDownloadForCmdV(size_t fileCount, uint64_t totalSize)
+{
+  // Only auto-download for small payloads (≤10 files, ≤20MB total)
+  // to avoid wasting bandwidth on large transfers the user might not paste.
+  const size_t kMaxFiles = 10;
+  const uint64_t kMaxSize = 20 * 1024 * 1024; // 20MB
+
+  if (fileCount == 0 || fileCount > kMaxFiles) return;
+  if (totalSize > 0 && totalSize > kMaxSize) return;
+
+  if (!m_clipboardTransferThread || !m_clipboardTransferThread->isRunning()) return;
+  if (!m_clipboardTransferThread->hasPendingFilesForPaste()) return;
+
+  LOG_INFO("[AutoDownload] starting pre-download (%zu file(s), %llu bytes) for Cmd+V support",
+           fileCount, totalSize);
+
+  // Create temp dir using POSIX (no ObjC needed in .cpp file)
+  char tmpTemplate[] = "/tmp/autodeskflow-paste-XXXXXX";
+  char *tmpDir = mkdtemp(tmpTemplate);
+  if (!tmpDir) {
+    LOG_WARN("[AutoDownload] failed to create temp dir");
+    return;
+  }
+  std::string destFolder(tmpDir);
+
+  ClipboardTransferThread *transferThread = m_clipboardTransferThread;
+  std::thread([this, transferThread, destFolder]() {
+    auto paths = transferThread->requestFilesAndWait(destFolder, 60000);
+    if (!paths.empty()) {
+      LOG_INFO("[AutoDownload] pre-download complete: %zu file(s) — Cmd+V ready", paths.size());
+      // updatePasteboardWithFiles is ObjC, must be called from OSXPasteboardBridge
+      OSXPasteboardBridge::updatePasteboardForCmdV(paths);
+    } else {
+      LOG_WARN("[AutoDownload] pre-download failed or timed out");
+    }
+  }).detach();
+}
+#endif

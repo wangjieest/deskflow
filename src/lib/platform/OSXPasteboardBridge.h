@@ -8,6 +8,7 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 /// Bridge between the main Deskflow process and the Finder Sync Extension.
 ///
@@ -36,4 +37,7 @@ public:
 
   /// Broadcast that there are no more pending files.
   static void clearPendingFiles();
+
+  /// Update NSPasteboard with local file paths so Cmd+V works natively in Finder.
+  static void updatePasteboardForCmdV(const std::vector<std::string> &localPaths);
 };

@@ -5,6 +5,7 @@
  */
 
 #include "platform/OSXPasteboardBridge.h"
+#include "platform/OSXPasteboardPeeker.h"
 #include "base/Log.h"
 
 #import <Foundation/Foundation.h>
@@ -316,4 +317,18 @@ void OSXPasteboardBridge::clearPendingFiles()
   writeDebugStateFile("[]", 0, false);
 
   LOG_DEBUG("OSXPasteboardBridge: cleared pending files");
+}
+
+void OSXPasteboardBridge::updatePasteboardForCmdV(const std::vector<std::string> &localPaths)
+{
+  dispatch_async(dispatch_get_main_queue(), ^{
+    @autoreleasepool {
+      std::vector<const char *> cPaths;
+      cPaths.reserve(localPaths.size());
+      for (const auto &p : localPaths) cPaths.push_back(p.c_str());
+      updatePasteboardWithFiles(cPaths.data(), static_cast<int>(cPaths.size()));
+      LOG_INFO("OSXPasteboardBridge: NSPasteboard updated with %zu file(s) — Cmd+V ready",
+               localPaths.size());
+    }
+  });
 }

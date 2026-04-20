@@ -188,6 +188,14 @@ private:
   void sendConnectionFailedEvent(const char *msg);
   void startFileTransferServer(const std::string &fileListJson);
   bool injectSourceInfoToClipboard(const IClipboard &src, Clipboard &dst);
+
+public:
+#if defined(__APPLE__)
+  // Pre-download files to temp dir and update NSPasteboard so Cmd+V works natively.
+  void triggerAutoDownloadForCmdV(size_t fileCount, uint64_t totalSize);
+#endif
+
+private:
   void setupConnecting();
   void setupConnection();
   void setupScreen();
