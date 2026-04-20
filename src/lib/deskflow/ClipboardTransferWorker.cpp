@@ -14,6 +14,8 @@
 #include "net/SocketMultiplexer.h"
 #include "net/TCPSocketFactory.h"
 
+#include <thread>
+
 #ifdef _WIN32
 #include <objbase.h>
 #endif
@@ -140,18 +142,17 @@ void ClipboardTransferWorker::processLoop()
     // Process pending messages from main thread
     m_owner->processMessages();
 
-    // Process event queue with short timeout
+    // Process event queue with ZERO timeout (non-blocking)
     if (m_events) {
       Event event;
-      if (m_events->getEvent(event, 0.01)) { // 10ms timeout
+      if (m_events->getEvent(event, 0.0)) {
         m_events->dispatchEvent(event);
         hadActivity = true;
       }
     }
 
 #ifdef _WIN32
-    // Process ALL Windows messages (not just clipboard window)
-    // OLE clipboard requires a full message pump for COM marshalling
+    // Process ALL Windows messages — critical for OLE clipboard COM marshalling
     {
       MSG winMsg;
       while (PeekMessage(&winMsg, nullptr, 0, 0, PM_REMOVE)) {
@@ -159,6 +160,17 @@ void ClipboardTransferWorker::processLoop()
         DispatchMessage(&winMsg);
         hadActivity = true;
       }
+    }
+
+    // If no activity, wait for either Windows messages or a short timeout
+    // MsgWaitForMultipleObjects ensures COM messages wake us immediately
+    if (!hadActivity) {
+      MsgWaitForMultipleObjects(0, nullptr, FALSE, 10, QS_ALLINPUT);
+    }
+#else
+    if (!hadActivity) {
+      // On non-Windows, just sleep briefly
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 #endif
 
@@ -171,8 +183,6 @@ void ClipboardTransferWorker::processLoop()
         LOG_WARN("[ClipboardTransfer] processLoop has been idle for %d iterations", maxIdleIterations);
       }
     }
-
-    // No QCoreApplication dependency - the event processing in m_events is sufficient
   }
 
   LOG_DEBUG("[ClipboardTransfer] exiting processing loop (stopping requested)");
