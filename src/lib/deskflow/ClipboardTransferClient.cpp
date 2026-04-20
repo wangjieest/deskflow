@@ -102,9 +102,14 @@ void ClipboardTransferClient::requestFile(
       if (callback) callback(false, "", "socket() failed");
       return;
     }
-    // 10-second connect timeout
-    struct timeval tv{10, 0};
+    // 30-second receive timeout
+#ifdef _WIN32
+    DWORD rcvTimeout = 30000; // milliseconds
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&rcvTimeout), sizeof(rcvTimeout));
+#else
+    struct timeval tv{30, 0};
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&tv), sizeof(tv));
+#endif
     if (connect(fd, res->ai_addr, static_cast<socklen_t>(res->ai_addrlen)) != 0) {
       freeaddrinfo(res);
       closesocket(fd);
