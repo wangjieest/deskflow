@@ -143,34 +143,32 @@ void ClipboardTransferClient::requestFile(
 
     bool success = false;
     while (true) {
-      // Read fixed 13-byte header: DFCH(4) + reqId(4) + type(1) + dataLen(4)
-      uint8_t hdr[13];
-      if (!recvAll(fd, hdr, 13)) {
-        // Check if connection was closed or timed out
-        int err = 0;
-#ifdef _WIN32
-        err = WSAGetLastError();
-#else
-        err = errno;
-#endif
-        LOG_ERR("[ClipboardTransferClient] failed to read DFCH header (socket error=%d)", err);
+      // ProtocolUtil::writef prepends a 4-byte BE packet-length before the message.
+      // Wire: pktLen(4) + "DFCH"(4) + reqId(4) + chunkType(1) + dataLen(4) + data(N)
+      uint8_t lenBuf[4];
+      if (!recvAll(fd, lenBuf, 4)) {
+        LOG_ERR("[ClipboardTransferClient] failed to read packet length (errno=%d)", errno);
         break;
       }
-      if (hdr[0]!='D'||hdr[1]!='F'||hdr[2]!='C'||hdr[3]!='H') {
-        LOG_ERR("[ClipboardTransferClient] bad chunk magic: %02x%02x%02x%02x", hdr[0], hdr[1], hdr[2], hdr[3]);
+      uint32_t pktLen = (uint32_t(lenBuf[0])<<24)|(uint32_t(lenBuf[1])<<16)|(uint32_t(lenBuf[2])<<8)|lenBuf[3];
+      if (pktLen < 9 || pktLen > 64*1024*1024) {
+        LOG_ERR("[ClipboardTransferClient] bad packet length %u (bytes: %02x%02x%02x%02x)",
+                pktLen, lenBuf[0], lenBuf[1], lenBuf[2], lenBuf[3]);
         break;
       }
-      uint32_t rId = (uint32_t(hdr[4])<<24)|(uint32_t(hdr[5])<<16)|(uint32_t(hdr[6])<<8)|hdr[7];
-      uint8_t  chunkType = hdr[8];
-      uint32_t dataLen = (uint32_t(hdr[9])<<24)|(uint32_t(hdr[10])<<16)|(uint32_t(hdr[11])<<8)|hdr[12];
-
-      // Read data payload
-      std::vector<uint8_t> dataBuf(dataLen);
-      if (dataLen > 0 && !recvAll(fd, dataBuf.data(), dataLen)) {
-        LOG_ERR("[ClipboardTransferClient] failed to read chunk data (%u bytes)", dataLen);
+      std::vector<uint8_t> pkt(pktLen);
+      if (!recvAll(fd, pkt.data(), pktLen)) {
+        LOG_ERR("[ClipboardTransferClient] failed to read packet body (%u bytes)", pktLen);
         break;
       }
-      const uint8_t *data = dataBuf.data();
+      if (pkt[0]!='D'||pkt[1]!='F'||pkt[2]!='C'||pkt[3]!='H') {
+        LOG_ERR("[ClipboardTransferClient] bad chunk magic: %02x%02x%02x%02x", pkt[0],pkt[1],pkt[2],pkt[3]);
+        break;
+      }
+      uint32_t rId      = (uint32_t(pkt[4])<<24)|(uint32_t(pkt[5])<<16)|(uint32_t(pkt[6])<<8)|pkt[7];
+      uint8_t  chunkType = pkt[8];
+      uint32_t dataLen  = (uint32_t(pkt[9])<<24)|(uint32_t(pkt[10])<<16)|(uint32_t(pkt[11])<<8)|pkt[12];
+      const uint8_t *data = pkt.data() + 13;
 
       LOG_DEBUG("[ClipboardTransferClient] chunk: reqId=%u type=%u dataLen=%u", rId, chunkType, dataLen);
 
