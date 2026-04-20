@@ -16,6 +16,8 @@
 // Initialize static members
 UINT MSWindowsDataObject::s_cfFileDescriptor = 0;
 UINT MSWindowsDataObject::s_cfFileContents = 0;
+UINT MSWindowsDataObject::s_cfPreferredDropEffect = 0;
+UINT MSWindowsDataObject::s_cfDeskflowOwnership = 0;
 UINT MSWindowsDataObject::s_cfRtf = 0;
 
 MSWindowsDataObject::MSWindowsDataObject(const std::vector<FileMetadata> &files, ClipboardTransferClient *transferClient)
@@ -29,6 +31,8 @@ MSWindowsDataObject::MSWindowsDataObject(const std::vector<FileMetadata> &files,
   if (s_cfFileDescriptor == 0) {
     s_cfFileDescriptor = RegisterClipboardFormatW(CFSTR_FILEDESCRIPTORW);
     s_cfFileContents = RegisterClipboardFormatW(CFSTR_FILECONTENTS);
+    s_cfPreferredDropEffect = RegisterClipboardFormatW(CFSTR_PREFERREDDROPEFFECT);
+    s_cfDeskflowOwnership = RegisterClipboardFormatW(L"Deskflow Ownership");
     s_cfRtf = RegisterClipboardFormatW(L"Rich Text Format");
   }
 
@@ -141,6 +145,29 @@ STDMETHODIMP MSWindowsDataObject::GetData(FORMATETC *pFormatEtc, STGMEDIUM *pMed
     }
   }
 
+  // Preferred drop effect
+  if (pFormatEtc->cfFormat == s_cfPreferredDropEffect && (pFormatEtc->tymed & TYMED_HGLOBAL)) {
+    HGLOBAL hGlobal = GlobalAlloc(GHND, sizeof(DWORD));
+    if (!hGlobal) return E_OUTOFMEMORY;
+    auto *pEffect = static_cast<DWORD *>(GlobalLock(hGlobal));
+    *pEffect = DROPEFFECT_COPY;
+    GlobalUnlock(hGlobal);
+    pMedium->tymed = TYMED_HGLOBAL;
+    pMedium->hGlobal = hGlobal;
+    pMedium->pUnkForRelease = nullptr;
+    return S_OK;
+  }
+
+  // Deskflow Ownership marker
+  if (pFormatEtc->cfFormat == s_cfDeskflowOwnership && (pFormatEtc->tymed & TYMED_HGLOBAL)) {
+    HGLOBAL hGlobal = GlobalAlloc(GHND, 1);
+    if (!hGlobal) return E_OUTOFMEMORY;
+    pMedium->tymed = TYMED_HGLOBAL;
+    pMedium->hGlobal = hGlobal;
+    pMedium->pUnkForRelease = nullptr;
+    return S_OK;
+  }
+
   LOG_DEBUG("GetData: format not supported (cfFormat=%u)", pFormatEtc->cfFormat);
   return DV_E_FORMATETC;
 }
@@ -183,6 +210,16 @@ STDMETHODIMP MSWindowsDataObject::QueryGetData(FORMATETC *pFormatEtc)
   // Support CF_RTF
   if (pFormatEtc->cfFormat == s_cfRtf && (pFormatEtc->tymed & TYMED_HGLOBAL)) {
     return !m_rtfData.empty() ? S_OK : DV_E_FORMATETC;
+  }
+
+  // Support Preferred DropEffect
+  if (pFormatEtc->cfFormat == s_cfPreferredDropEffect && (pFormatEtc->tymed & TYMED_HGLOBAL)) {
+    return !m_files.empty() ? S_OK : DV_E_FORMATETC;
+  }
+
+  // Support Deskflow Ownership marker
+  if (pFormatEtc->cfFormat == s_cfDeskflowOwnership && (pFormatEtc->tymed & TYMED_HGLOBAL)) {
+    return S_OK;
   }
 
   return DV_E_FORMATETC;
@@ -406,6 +443,26 @@ void MSWindowsDataObject::registerFormats()
       contents.tymed = TYMED_ISTREAM;
       m_formats.push_back(contents);
     }
+  }
+
+  // Preferred drop effect (copy)
+  if (!m_files.empty()) {
+    FORMATETC dropEffect = {};
+    dropEffect.cfFormat = static_cast<CLIPFORMAT>(s_cfPreferredDropEffect);
+    dropEffect.dwAspect = DVASPECT_CONTENT;
+    dropEffect.lindex = -1;
+    dropEffect.tymed = TYMED_HGLOBAL;
+    m_formats.push_back(dropEffect);
+  }
+
+  // Deskflow Ownership marker - prevents main thread clipboard re-grab
+  {
+    FORMATETC ownership = {};
+    ownership.cfFormat = static_cast<CLIPFORMAT>(s_cfDeskflowOwnership);
+    ownership.dwAspect = DVASPECT_CONTENT;
+    ownership.lindex = -1;
+    ownership.tymed = TYMED_HGLOBAL;
+    m_formats.push_back(ownership);
   }
 
   // Add text format if text data is available
