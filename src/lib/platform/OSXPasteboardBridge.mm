@@ -6,9 +6,85 @@
 
 #include "platform/OSXPasteboardBridge.h"
 #include "platform/OSXPasteboardPeeker.h"
+#include "deskflow/ClipboardTransferThread.h"
 #include "base/Log.h"
 
+#import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
+
+// ---------------------------------------------------------------------------
+// Deferred pasteboard provider — declares types immediately, downloads on demand
+// ---------------------------------------------------------------------------
+@interface DeferredPasteProvider : NSObject
+@property (nonatomic) ClipboardTransferThread *transferThread;
+@property (nonatomic, copy) NSString *tempDir;
++ (instancetype)providerWithThread:(ClipboardTransferThread *)thread;
+- (void)declarePasteboard;
+@end
+
+@implementation DeferredPasteProvider
+
++ (instancetype)providerWithThread:(ClipboardTransferThread *)thread {
+  DeferredPasteProvider *p = [DeferredPasteProvider new];
+  p.transferThread = thread;
+  // Create temp dir for this session
+  char tmpl[] = "/tmp/autodeskflow-paste-XXXXXX";
+  char *dir = mkdtemp(tmpl);
+  p.tempDir = dir ? [NSString stringWithUTF8String:dir] : NSTemporaryDirectory();
+  return p;
+}
+
+- (void)declarePasteboard {
+  NSPasteboard *pb = [NSPasteboard generalPasteboard];
+  // Declare deferred types — AppKit will call provideDataForType: on demand
+  [pb declareTypes:@[NSPasteboardTypeFileURL, @"NSFilenamesPboardType"] owner:self];
+  LOG_INFO("[DeferredPaste] declared deferred pasteboard types — Cmd+V ready (download on paste)");
+}
+
+// Called synchronously by AppKit when the user actually pastes (Cmd+V / Edit→Paste)
+- (void)pasteboard:(NSPasteboard *)sender provideDataForType:(NSPasteboardType)type {
+  LOG_INFO("[DeferredPaste] provideDataForType: %s — downloading now...", [type UTF8String]);
+
+  if (!self.transferThread || !self.transferThread->hasPendingFilesForPaste()) {
+    LOG_WARN("[DeferredPaste] no pending files when paste was triggered");
+    return;
+  }
+
+  std::string destFolder = self.tempDir ? std::string([self.tempDir UTF8String]) : "/tmp";
+  auto paths = self.transferThread->requestFilesAndWait(destFolder, 30000);
+
+  if (paths.empty()) {
+    LOG_ERR("[DeferredPaste] download failed or timed out");
+    return;
+  }
+
+  LOG_INFO("[DeferredPaste] downloaded %zu file(s) to %s", paths.size(), destFolder.c_str());
+
+  if ([type isEqualToString:NSPasteboardTypeFileURL]) {
+    NSMutableArray<NSURL *> *urls = [NSMutableArray arrayWithCapacity:paths.size()];
+    for (const auto &p : paths) {
+      NSURL *url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:p.c_str()]];
+      if (url) [urls addObject:url];
+    }
+    // Write file URLs to pasteboard so Finder copies them to the paste destination
+    [sender clearContents];
+    [sender writeObjects:urls];
+  } else if ([type isEqualToString:@"NSFilenamesPboardType"]) {
+    NSMutableArray<NSString *> *filePaths = [NSMutableArray arrayWithCapacity:paths.size()];
+    for (const auto &p : paths)
+      [filePaths addObject:[NSString stringWithUTF8String:p.c_str()]];
+    [sender setPropertyList:filePaths forType:@"NSFilenamesPboardType"];
+  }
+}
+
+// Called when another app takes ownership of the pasteboard
+- (void)pasteboardChangedOwner:(NSPasteboard *)sender {
+  LOG_DEBUG("[DeferredPaste] pasteboard ownership lost");
+  self.transferThread = nullptr;
+}
+@end
+
+static DeferredPasteProvider *s_deferredProvider = nil;
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
@@ -339,6 +415,17 @@ void OSXPasteboardBridge::updatePasteboardForCmdV(const std::vector<std::string>
                pathsCopy.size());
       FILE *f = fopen("/tmp/autodeskflow-transfer.log","a");
       if (f) { fprintf(f,"[AutoDownload] pasteboard updated OK, count=%zu\n", pathsCopy.size()); fclose(f); }
+    }
+  });
+}
+
+void OSXPasteboardBridge::setupDeferredPaste(void *transferThreadPtr)
+{
+  ClipboardTransferThread *thread = static_cast<ClipboardTransferThread *>(transferThreadPtr);
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    @autoreleasepool {
+      s_deferredProvider = [DeferredPasteProvider providerWithThread:thread];
+      [s_deferredProvider declarePasteboard];
     }
   });
 }
