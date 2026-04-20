@@ -11,6 +11,7 @@
 
 #include <shlwapi.h>
 #include <strsafe.h>
+#include <algorithm>
 #include <thread>
 #include <memory>
 
@@ -312,8 +313,10 @@ HRESULT MSWindowsDataObject::createFileGroupDescriptor(STGMEDIUM *pMedium)
     ZeroMemory(&fd, sizeof(FILEDESCRIPTORW));
 
     // Set file name (use relative path if available, otherwise just name)
-    const wchar_t *displayName = file.relativePath.empty() ? file.name.c_str() : file.relativePath.c_str();
-    StringCchCopyW(fd.cFileName, MAX_PATH, displayName);
+    // Explorer requires backslash separators for nested paths (e.g., "folder\file.txt")
+    std::wstring displayName = file.relativePath.empty() ? file.name : file.relativePath;
+    std::replace(displayName.begin(), displayName.end(), L'/', L'\\');
+    StringCchCopyW(fd.cFileName, MAX_PATH, displayName.c_str());
 
     // Set file size
     fd.dwFlags |= FD_FILESIZE;
