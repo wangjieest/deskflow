@@ -132,6 +132,15 @@ void ClipboardTransferWorker::processLoop()
 {
   LOG_DEBUG("[ClipboardTransfer] entering processing loop");
 
+  // Initialize the event queue so addEvent goes to buffer (not m_pending).
+  // Without this, events from SocketMultiplexer go to m_pending and are never processed.
+  if (m_events) {
+    auto *eq = dynamic_cast<EventQueue *>(m_events.get());
+    if (eq) {
+      eq->initReady();
+    }
+  }
+
   // Track idle iterations to detect stuck state
   int idleIterations = 0;
   const int maxIdleIterations = 1000; // About 10 seconds at 10ms per iteration

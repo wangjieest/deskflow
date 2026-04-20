@@ -50,6 +50,10 @@ public:
   void *getSystemTarget() override;
   void waitForReady() const override;
 
+  //! Initialize the event queue without entering the event loop.
+  //! Call this instead of loop() when using your own polling loop with getEvent().
+  void initReady();
+
 private:
   std::optional<EventHandler> getHandler(EventTypes type, void *target) const;
   uint32_t saveEvent(Event &&event);
