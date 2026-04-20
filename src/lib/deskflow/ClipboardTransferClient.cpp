@@ -141,7 +141,14 @@ void ClipboardTransferClient::requestFile(
       // Read fixed 13-byte header: DFCH(4) + reqId(4) + type(1) + dataLen(4)
       uint8_t hdr[13];
       if (!recvAll(fd, hdr, 13)) {
-        LOG_ERR("[ClipboardTransferClient] failed to read DFCH header");
+        // Check if connection was closed or timed out
+        int err = 0;
+#ifdef _WIN32
+        err = WSAGetLastError();
+#else
+        err = errno;
+#endif
+        LOG_ERR("[ClipboardTransferClient] failed to read DFCH header (socket error=%d)", err);
         break;
       }
       if (hdr[0]!='D'||hdr[1]!='F'||hdr[2]!='C'||hdr[3]!='H') {
