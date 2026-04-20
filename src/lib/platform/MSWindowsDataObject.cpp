@@ -41,7 +41,7 @@ MSWindowsDataObject::MSWindowsDataObject(const std::vector<FileMetadata> &files,
   // Register supported formats for enumeration
   registerFormats();
 
-  LOG_INFO("MSWindowsDataObject created with %zu files, async=%d", m_files.size(), m_asyncMode);
+  LOG_DEBUG("MSWindowsDataObject created with %zu files, async=%d", m_files.size(), m_asyncMode);
 }
 
 MSWindowsDataObject::~MSWindowsDataObject()
@@ -108,7 +108,7 @@ STDMETHODIMP MSWindowsDataObject::GetData(FORMATETC *pFormatEtc, STGMEDIUM *pMed
 
   // FILEDESCRIPTOR: Return file metadata list
   if (pFormatEtc->cfFormat == s_cfFileDescriptor && (pFormatEtc->tymed & TYMED_HGLOBAL)) {
-    LOG_INFO("GetData: returning FILEDESCRIPTOR for %zu files", m_files.size());
+    LOG_DEBUG("GetData: returning FILEDESCRIPTOR for %zu files", m_files.size());
     return createFileGroupDescriptor(pMedium);
   }
 
@@ -127,14 +127,14 @@ STDMETHODIMP MSWindowsDataObject::GetData(FORMATETC *pFormatEtc, STGMEDIUM *pMed
       return E_PENDING;
     }
 
-    LOG_INFO("GetData: returning FILECONTENTS IStream for file index %d (%S)", fileIndex, m_files[fileIndex].name.c_str());
+    LOG_DEBUG("GetData: returning FILECONTENTS IStream for file index %d (%S)", fileIndex, m_files[fileIndex].name.c_str());
     return createFileContents(fileIndex, pMedium);
   }
 
   // CF_UNICODETEXT: Return text data
   if (pFormatEtc->cfFormat == CF_UNICODETEXT && (pFormatEtc->tymed & TYMED_HGLOBAL)) {
     if (!m_textData.empty()) {
-      LOG_INFO("GetData: returning CF_UNICODETEXT");
+      LOG_DEBUG("GetData: returning CF_UNICODETEXT");
       return getTextData(pMedium);
     }
   }
@@ -142,7 +142,7 @@ STDMETHODIMP MSWindowsDataObject::GetData(FORMATETC *pFormatEtc, STGMEDIUM *pMed
   // CF_RTF: Return RTF data
   if (pFormatEtc->cfFormat == s_cfRtf && (pFormatEtc->tymed & TYMED_HGLOBAL)) {
     if (!m_rtfData.empty()) {
-      LOG_INFO("GetData: returning CF_RTF");
+      LOG_DEBUG("GetData: returning CF_RTF");
       return getRtfData(pMedium);
     }
   }
@@ -343,7 +343,7 @@ HRESULT MSWindowsDataObject::createFileGroupDescriptor(STGMEDIUM *pMedium)
   pMedium->hGlobal = hGlobal;
   pMedium->pUnkForRelease = nullptr;
 
-  LOG_INFO("Created FILEGROUPDESCRIPTOR with %zu files", fileCount);
+  LOG_DEBUG("Created FILEGROUPDESCRIPTOR with %zu files", fileCount);
   return S_OK;
 }
 
@@ -368,7 +368,7 @@ HRESULT MSWindowsDataObject::createFileContents(int fileIndex, STGMEDIUM *pMediu
   }
 
   const std::string &localPath = m_localPaths[fileIndex];
-  LOG_INFO("createFileContents[%d]: returning IStream for %s", fileIndex, localPath.c_str());
+  LOG_DEBUG("createFileContents[%d]: returning IStream for %s", fileIndex, localPath.c_str());
 
   // Open the downloaded temp file as IStream
   int wideLen = MultiByteToWideChar(CP_UTF8, 0, localPath.c_str(), -1, nullptr, 0);
@@ -403,7 +403,7 @@ void MSWindowsDataObject::downloadAllFiles()
     if (!f.isDir) fileCount++;
   }
 
-  LOG_INFO("downloadAllFiles: downloading %zu files sequentially", fileCount);
+  LOG_DEBUG("downloadAllFiles: downloading %zu files sequentially", fileCount);
 
   // Download all files one by one on a single background thread
   HANDLE hDoneEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
@@ -425,7 +425,7 @@ void MSWindowsDataObject::downloadAllFiles()
           [&](bool ok, const std::string &path, const std::string &err) {
             if (ok) {
               (*localPaths)[i] = path;
-              LOG_INFO("downloadAllFiles[%zu]: %s", i, path.c_str());
+              LOG_DEBUG("downloadAllFiles[%zu]: %s", i, path.c_str());
             } else {
               LOG_ERR("downloadAllFiles[%zu]: %s", i, err.c_str());
             }
@@ -475,7 +475,7 @@ void MSWindowsDataObject::downloadAllFiles()
     m_localPaths[i] = (*localPaths)[i];
   }
 
-  LOG_INFO("downloadAllFiles: complete (%zu files)", fileCount);
+  LOG_DEBUG("downloadAllFiles: complete (%zu files)", fileCount);
 }
 
 //
@@ -502,14 +502,14 @@ STDMETHODIMP MSWindowsDataObject::GetAsyncMode(BOOL *pfIsOpAsync)
 
 STDMETHODIMP MSWindowsDataObject::StartOperation(IBindCtx *pbcReserved)
 {
-  LOG_INFO("MSWindowsDataObject::StartOperation - Begin async operation");
+  LOG_DEBUG("MSWindowsDataObject::StartOperation - Begin async operation");
   m_inOperation = TRUE;
   return S_OK;
 }
 
 STDMETHODIMP MSWindowsDataObject::EndOperation(HRESULT hResult, IBindCtx *pbcReserved, DWORD dwEffects)
 {
-  LOG_INFO("MSWindowsDataObject::EndOperation - End async operation (result=0x%08X)", hResult);
+  LOG_DEBUG("MSWindowsDataObject::EndOperation - End async operation (result=0x%08X)", hResult);
   m_inOperation = FALSE;
   return S_OK;
 }

@@ -123,7 +123,7 @@ void PrimaryClient::setClipboard(ClipboardID id, const IClipboard *clipboard)
     m_clipboardDirty[id] = false;
 
     // set clipboard
-    LOG_INFO("PrimaryClient: setting clipboard %d on primary screen", id);
+    LOG_DEBUG("PrimaryClient: setting clipboard %d on primary screen", id);
     m_screen->setClipboard(id, clipboard);
   } else {
     LOG_DEBUG("PrimaryClient: skipping clipboard %d (not dirty)", id);
