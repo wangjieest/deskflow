@@ -23,6 +23,7 @@
 #include "deskflow/KeyMap.h"
 #include "deskflow/ScreenException.h"
 #include "platform/MSWindowsClipboard.h"
+#include "platform/MSWindowsClipboardFileConverter.h"
 #include "platform/MSWindowsDesks.h"
 #include "platform/MSWindowsEventQueueBuffer.h"
 #include "platform/MSWindowsKeyState.h"
@@ -933,6 +934,37 @@ bool MSWindowsScreen::onPreDispatchPrimary(HWND, UINT message, WPARAM wParam, LP
 bool MSWindowsScreen::onEvent(HWND, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT *result)
 {
   switch (msg) {
+
+  case WM_RENDERFORMAT: {
+    UINT requestedFormat = static_cast<UINT>(wParam);
+    LOG_INFO("WM_RENDERFORMAT for format: %u (CF_HDROP=%u)", requestedFormat, CF_HDROP);
+
+    if (requestedFormat == CF_HDROP && MSWindowsClipboardFileConverter::isDelayedRenderingActive()) {
+      if (MSWindowsClipboardFileConverter::hasPendingFiles()) {
+        const auto &pending = MSWindowsClipboardFileConverter::getPendingFiles();
+        LOG_INFO("triggering file transfer for %zu pending files", pending.size());
+
+        if (MSWindowsClipboardFileConverter::triggerFileTransferAndWait(60000)) {
+          const auto &paths = MSWindowsClipboardFileConverter::getCompletedFilePaths();
+          LOG_INFO("transfer completed, providing CF_HDROP with %zu files", paths.size());
+
+          HANDLE hDrop = MSWindowsClipboardFileConverter::createHDropFromPaths(paths);
+          if (hDrop) {
+            if (!SetClipboardData(CF_HDROP, hDrop)) {
+              LOG_ERR("SetClipboardData failed: %lu", GetLastError());
+              GlobalFree(hDrop);
+            }
+          }
+        } else {
+          LOG_ERR("file transfer failed or timed out");
+        }
+      } else {
+        LOG_WARN("WM_RENDERFORMAT for CF_HDROP but no pending files");
+      }
+    }
+    *result = 0;
+    return true;
+  }
 
   case WM_CLIPBOARDUPDATE: {
     DWORD clipboardSequenceNumber = GetClipboardSequenceNumber();

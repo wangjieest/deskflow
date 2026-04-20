@@ -100,20 +100,18 @@ bool MSWindowsClipboard::empty()
 
 void MSWindowsClipboard::add(Format format, const std::string &data)
 {
+  LOG_INFO("MSWindowsClipboard::add: format=%d, dataLen=%zu, window=%p", format, data.size(), m_window);
+
   // exit early if there is no data to prevent spurious "failed to convert clipboard data" errors
   if (data.empty()) {
     LOG_DEBUG("not adding 0 bytes to clipboard format: %d", format);
     return;
   }
 
-  // Special handling for FileList format using IDataObject streaming
-  if (format == Format::FileList) {
-    if (addFileListAsIDataObject(data)) {
-      LOG_INFO("Successfully added file list using IDataObject streaming");
-      return;
-    }
-    LOG_WARN("Failed to add file list as IDataObject, falling back to standard conversion");
-  }
+  // FileList format is handled via converter delayed rendering path below.
+  // Do NOT call addFileListAsIDataObject() here — OleSetClipboard() conflicts
+  // with the already-open Win32 clipboard and corrupts state, causing
+  // subsequent SetClipboardData(CF_HDROP, nullptr) to fail with ERROR_ACCESS_DENIED.
 
   // TODO: Special handling for Text format using IDataObject delayed rendering
   // Temporarily disabled for compilation - needs setTextData() implementation in MSWindowsDataObject
@@ -157,11 +155,15 @@ void MSWindowsClipboard::add(Format format, const std::string &data)
         // Use Windows delayed rendering mechanism:
         // SetClipboardData with NULL handle tells Windows to send WM_RENDERFORMAT
         // when an application actually requests this data (e.g., user pastes)
-        LOG_INFO("using delayed rendering for CF_HDROP (file list)");
-        if (SetClipboardData(CF_HDROP, nullptr) != nullptr) {
+        // NOTE: SetClipboardData returns NULL for delayed rendering (since hMem is NULL),
+        // so check GetLastError() instead of the return value.
+        SetClipboardData(CF_HDROP, nullptr);
+        DWORD err = GetLastError();
+        if (err == 0) {
+          LOG_INFO("CF_HDROP delayed rendering set successfully (window=%p)", m_window);
           isSucceeded = true;
         } else {
-          LOG_ERR("failed to set delayed rendering for CF_HDROP: %d", GetLastError());
+          LOG_ERR("failed to set delayed rendering for CF_HDROP: %lu", err);
         }
         break;
       }

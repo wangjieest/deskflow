@@ -672,12 +672,13 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
 
     if (m_enableClipboard) {
       // send the clipboard data to new active screen
+      LOG_INFO("switchScreen: sending clipboard to \"%s\" (isPrimary=%d)", m_active->getName().c_str(), (m_active == m_primaryClient));
       for (ClipboardID id = 0; id < kClipboardEnd; ++id) {
         ClipboardInfo &clipboard = m_clipboards[id];
 
         // Check if this client already has the data for current session
         if (clientHasClipboardData(m_active, id)) {
-          LOG_DEBUG(
+          LOG_INFO(
               "skipping clipboard %d for \"%s\" - already has data for session %llu", id, m_active->getName().c_str(),
               clipboard.m_sessionId
           );
@@ -686,9 +687,14 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
 
         // Check if deferred mode - send metadata instead of full data
         // Only use deferred mode if the client supports it
+        LOG_INFO(
+            "switchScreen: clipboard %d: deferred=%d, caps=0x%x, contentType=%u, sourceAddr=%s",
+            id, clipboard.m_meta.deferred, m_active->capabilities(),
+            clipboard.m_meta.contentType, clipboard.m_meta.sourceAddress.c_str()
+        );
         if (clipboard.m_meta.deferred &&
             (m_active->capabilities() & kCapDeferredClipboard)) {
-          LOG_DEBUG(
+          LOG_INFO(
               "sending clipboard %d metadata to \"%s\" (deferred mode, session %llu)", id, m_active->getName().c_str(),
               clipboard.m_sessionId
           );
@@ -700,12 +706,12 @@ void Server::switchScreen(BaseClientProxy *dst, int32_t x, int32_t y, bool forSc
           IClipboard::Format fmt = static_cast<IClipboard::Format>(clipboard.m_meta.contentType);
           if (m_active == m_primaryClient && fmt == IClipboard::Format::FileList &&
               id != kClipboardClipboard) {
-            LOG_DEBUG("switchScreen: skipping deferred FileList clipboard %d on primary (X11 selection)", id);
+            LOG_INFO("switchScreen: skipping deferred FileList clipboard %d on primary (X11 selection)", id);
             markClientHasClipboardData(m_active, id);
             continue;
           }
 #endif
-          LOG_DEBUG(
+          LOG_INFO(
               "switchScreen: clipboard %d deferred, sending full data to \"%s\" (caps=0x%x)",
               id, m_active->getName().c_str(), m_active->capabilities()
           );
