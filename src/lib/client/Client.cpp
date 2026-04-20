@@ -132,8 +132,9 @@ Client::Client(
 
       if (!paths.empty()) {
         LOG_INFO("[FinderPaste] %zu file(s) transferred to %s", paths.size(), targetDir.c_str());
-        // updatePasteboardWithFiles must run on the main thread (Pasteboard API)
-        dispatch_async(dispatch_get_main_queue(), ^{
+        // NSPasteboard is thread-safe on modern macOS; use background queue
+        // (Qt blocks GCD main_queue dispatch in its event loop)
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
           std::vector<const char *> cPaths;
           cPaths.reserve(paths.size());
           for (const auto &p : paths) cPaths.push_back(p.c_str());
@@ -1121,25 +1122,37 @@ bool Client::injectSourceInfoToClipboard(const IClipboard &src, Clipboard &dst)
 #if defined(__APPLE__)
 void Client::triggerAutoDownloadForCmdV(size_t fileCount, uint64_t totalSize)
 {
+  // Prevent concurrent downloads — two CLIPBOARD_META messages arrive back-to-back
+  // and both would try to use ClipboardTransferClient concurrently (not thread-safe).
+  bool expected = false;
+  if (!m_autoDownloadInProgress.compare_exchange_strong(expected, true)) {
+    LOG_DEBUG("[AutoDownload] skipping — another download already in progress");
+    return;
+  }
+
   // Only auto-download for small payloads (≤10 files, ≤20MB total)
-  // to avoid wasting bandwidth on large transfers the user might not paste.
   const size_t kMaxFiles = 10;
-  const uint64_t kMaxSize = 20 * 1024 * 1024; // 20MB
+  const uint64_t kMaxSize = 20 * 1024 * 1024;
 
-  if (fileCount == 0 || fileCount > kMaxFiles) return;
-  if (totalSize > 0 && totalSize > kMaxSize) return;
+  if (fileCount == 0 || fileCount > kMaxFiles || (totalSize > 0 && totalSize > kMaxSize)) {
+    m_autoDownloadInProgress.store(false);
+    return;
+  }
 
-  if (!m_clipboardTransferThread || !m_clipboardTransferThread->isRunning()) return;
-  if (!m_clipboardTransferThread->hasPendingFilesForPaste()) return;
+  if (!m_clipboardTransferThread || !m_clipboardTransferThread->isRunning()
+      || !m_clipboardTransferThread->hasPendingFilesForPaste()) {
+    m_autoDownloadInProgress.store(false);
+    return;
+  }
 
   LOG_INFO("[AutoDownload] starting pre-download (%zu file(s), %llu bytes) for Cmd+V support",
            fileCount, totalSize);
 
-  // Create temp dir using POSIX (no ObjC needed in .cpp file)
   char tmpTemplate[] = "/tmp/autodeskflow-paste-XXXXXX";
   char *tmpDir = mkdtemp(tmpTemplate);
   if (!tmpDir) {
     LOG_WARN("[AutoDownload] failed to create temp dir");
+    m_autoDownloadInProgress.store(false);
     return;
   }
   std::string destFolder(tmpDir);
@@ -1147,9 +1160,9 @@ void Client::triggerAutoDownloadForCmdV(size_t fileCount, uint64_t totalSize)
   ClipboardTransferThread *transferThread = m_clipboardTransferThread;
   std::thread([this, transferThread, destFolder]() {
     auto paths = transferThread->requestFilesAndWait(destFolder, 60000);
+    m_autoDownloadInProgress.store(false);  // release lock before callback
     if (!paths.empty()) {
       LOG_INFO("[AutoDownload] pre-download complete: %zu file(s) — Cmd+V ready", paths.size());
-      // updatePasteboardWithFiles is ObjC, must be called from OSXPasteboardBridge
       OSXPasteboardBridge::updatePasteboardForCmdV(paths);
     } else {
       LOG_WARN("[AutoDownload] pre-download failed or timed out");

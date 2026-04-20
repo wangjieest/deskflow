@@ -7,6 +7,7 @@
  */
 
 #pragma once
+#include <atomic>
 
 #include "deskflow/IClient.h"
 
@@ -196,6 +197,9 @@ public:
 #endif
 
 private:
+#if defined(__APPLE__)
+  std::atomic<bool> m_autoDownloadInProgress{false};
+#endif
   void setupConnecting();
   void setupConnection();
   void setupScreen();

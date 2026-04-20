@@ -321,14 +321,24 @@ void OSXPasteboardBridge::clearPendingFiles()
 
 void OSXPasteboardBridge::updatePasteboardForCmdV(const std::vector<std::string> &localPaths)
 {
-  dispatch_async(dispatch_get_main_queue(), ^{
+  LOG_INFO("OSXPasteboardBridge: updatePasteboardForCmdV called with %zu file(s)", localPaths.size());
+  { FILE *f = fopen("/tmp/autodeskflow-transfer.log","a");
+    if (f) { fprintf(f,"[AutoDownload] updatePasteboardForCmdV: %zu files\n", localPaths.size()); fclose(f); } }
+
+  // IMPORTANT: copy the vector — localPaths is a const-ref to a caller-stack variable
+  // that will be destroyed when the calling thread returns. The block must own the data.
+  std::vector<std::string> pathsCopy(localPaths);
+
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
     @autoreleasepool {
       std::vector<const char *> cPaths;
-      cPaths.reserve(localPaths.size());
-      for (const auto &p : localPaths) cPaths.push_back(p.c_str());
+      cPaths.reserve(pathsCopy.size());
+      for (const auto &p : pathsCopy) cPaths.push_back(p.c_str());
       updatePasteboardWithFiles(cPaths.data(), static_cast<int>(cPaths.size()));
       LOG_INFO("OSXPasteboardBridge: NSPasteboard updated with %zu file(s) — Cmd+V ready",
-               localPaths.size());
+               pathsCopy.size());
+      FILE *f = fopen("/tmp/autodeskflow-transfer.log","a");
+      if (f) { fprintf(f,"[AutoDownload] pasteboard updated OK, count=%zu\n", pathsCopy.size()); fclose(f); }
     }
   });
 }
