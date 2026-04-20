@@ -40,4 +40,7 @@ public:
 
   /// Update NSPasteboard with local file paths so Cmd+V works natively in Finder.
   static void updatePasteboardForCmdV(const std::vector<std::string> &localPaths);
+
+  /// Declare deferred pasteboard — download happens only when user actually pastes.
+  static void setupDeferredPaste(void *transferThread);
 };
