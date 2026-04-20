@@ -936,21 +936,33 @@ bool MSWindowsScreen::onEvent(HWND, UINT msg, WPARAM wParam, LPARAM lParam, LRES
   switch (msg) {
 
   case WM_RENDERFORMAT: {
+    // Windows delayed rendering: another app requested clipboard data
+    // NOTE: When ClipboardTransferThread is used (the preferred path), WM_RENDERFORMAT
+    // goes to its dedicated clipboard window, not here. This is the legacy fallback.
     UINT requestedFormat = static_cast<UINT>(wParam);
-    LOG_INFO("WM_RENDERFORMAT for format: %u (CF_HDROP=%u)", requestedFormat, CF_HDROP);
+    LOG_INFO("WM_RENDERFORMAT on main thread for format: %u (CF_HDROP=%u)", requestedFormat, CF_HDROP);
 
     if (requestedFormat == CF_HDROP && MSWindowsClipboardFileConverter::isDelayedRenderingActive()) {
-      if (MSWindowsClipboardFileConverter::hasPendingFiles()) {
-        const auto &pending = MSWindowsClipboardFileConverter::getPendingFiles();
-        LOG_INFO("triggering file transfer for %zu pending files", pending.size());
+      LOG_WARN("WM_RENDERFORMAT for CF_HDROP on MAIN THREAD (legacy blocking path)");
 
+      if (MSWindowsClipboardFileConverter::hasCompletedFiles()) {
+        const auto &paths = MSWindowsClipboardFileConverter::getCompletedFilePaths();
+        LOG_INFO("providing CF_HDROP with %zu completed files", paths.size());
+        HANDLE hDrop = MSWindowsClipboardFileConverter::createHDropFromPaths(paths);
+        if (hDrop) {
+          if (SetClipboardData(CF_HDROP, hDrop) == nullptr && GetLastError() != 0) {
+            LOG_ERR("SetClipboardData failed: %lu", GetLastError());
+            GlobalFree(hDrop);
+          }
+        }
+      } else if (MSWindowsClipboardFileConverter::hasPendingFiles()) {
+        LOG_INFO("triggering blocking transfer for pending files");
         if (MSWindowsClipboardFileConverter::triggerFileTransferAndWait(60000)) {
           const auto &paths = MSWindowsClipboardFileConverter::getCompletedFilePaths();
-          LOG_INFO("transfer completed, providing CF_HDROP with %zu files", paths.size());
-
+          LOG_INFO("transfer done, providing CF_HDROP with %zu files", paths.size());
           HANDLE hDrop = MSWindowsClipboardFileConverter::createHDropFromPaths(paths);
           if (hDrop) {
-            if (!SetClipboardData(CF_HDROP, hDrop)) {
+            if (SetClipboardData(CF_HDROP, hDrop) == nullptr && GetLastError() != 0) {
               LOG_ERR("SetClipboardData failed: %lu", GetLastError());
               GlobalFree(hDrop);
             }
@@ -959,8 +971,18 @@ bool MSWindowsScreen::onEvent(HWND, UINT msg, WPARAM wParam, LPARAM lParam, LRES
           LOG_ERR("file transfer failed or timed out");
         }
       } else {
-        LOG_WARN("WM_RENDERFORMAT for CF_HDROP but no pending files");
+        LOG_WARN("WM_RENDERFORMAT for CF_HDROP but no pending or completed files");
       }
+    }
+    *result = 0;
+    return true;
+  }
+
+  case WM_RENDERALLFORMATS: {
+    LOG_DEBUG("WM_RENDERALLFORMATS received");
+    if (MSWindowsClipboardFileConverter::isDelayedRenderingActive()) {
+      MSWindowsClipboardFileConverter::setDelayedRenderingActive(false);
+      MSWindowsClipboardFileConverter::clearPendingFiles();
     }
     *result = 0;
     return true;
