@@ -69,6 +69,22 @@ void EventQueue::loop()
   }
 }
 
+void EventQueue::initReady()
+{
+  m_buffer->init();
+  {
+    Lock lock(m_readyMutex);
+    *m_readyCondVar = true;
+    m_readyCondVar->signal();
+  }
+  LOG_DEBUG("event queue initialized (ready for polling)");
+  while (!m_pending.empty()) {
+    Event &event = m_pending.front();
+    addEventToBuffer(std::move(event));
+    m_pending.pop();
+  }
+}
+
 void EventQueue::adoptBuffer(IEventQueueBuffer *buffer)
 {
   std::scoped_lock lock{m_mutex};
