@@ -22,5 +22,6 @@
 
 - (BOOL)hasPendingFiles;
 - (NSUInteger)pendingFileCount;
+- (void)pasteFromDeskflow:(id)sender;
 
 @end

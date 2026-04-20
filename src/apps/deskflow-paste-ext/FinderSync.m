@@ -5,6 +5,7 @@
  */
 
 #import "FinderSync.h"
+#include <notify.h>
 #include <os/log.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -148,7 +149,19 @@ static void extLog(NSString *fmt, ...) {
 }
 
 - (BOOL)sendPasteViaSocket:(NSString *)targetPath {
+  // Log to Documents for sandbox diagnostics
+  NSArray *docs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+  NSString *logFile = [docs.firstObject stringByAppendingPathComponent:@"paste-socket.log"];
+  void (^dlog)(NSString *) = ^(NSString *msg) {
+    NSString *line = [NSString stringWithFormat:@"%@\n", msg];
+    NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:logFile];
+    if (!fh) { [@"" writeToFile:logFile atomically:NO encoding:NSUTF8StringEncoding error:nil]; fh=[NSFileHandle fileHandleForWritingAtPath:logFile]; }
+    [fh seekToEndOfFile]; [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]]; [fh closeFile];
+  };
+  dlog([NSString stringWithFormat:@"sendPaste: target=%@", targetPath]);
+
   int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+  dlog([NSString stringWithFormat:@"socket()=%d errno=%d", fd, errno]);
   if (fd < 0) {
     extLog(@"[Ext] sendPaste: socket() failed errno=%d", errno);
     return NO;
@@ -159,7 +172,9 @@ static void extLog(NSString *fmt, ...) {
   addr.sun_family = AF_UNIX;
   strncpy(addr.sun_path, kSocketPath, sizeof(addr.sun_path) - 1);
 
-  if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+  int connResult = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+  dlog([NSString stringWithFormat:@"connect()=%d errno=%d path=%s", connResult, errno, kSocketPath]);
+  if (connResult < 0) {
     extLog(@"[Ext] sendPaste: connect() failed errno=%d", errno);
     close(fd);
     return NO;
@@ -223,28 +238,27 @@ static void extLog(NSString *fmt, ...) {
 #pragma mark - Context Menu
 
 - (NSMenu *)menuForMenuKind:(FIMenuKind)menuKind {
-  NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Deskflow"];
+  NSMenu *menu = [[NSMenu alloc] initWithTitle:@""];
 
   BOOL hasPending = [self hasPendingFiles];
   NSUInteger count = hasPending ? [self pendingFileCount] : 0;
 
   NSString *title;
   if (!hasPending) {
-    title = @"No Files to Paste";
+    title = @"No Items to Paste";
   } else if (count == 1) {
-    title = [NSString stringWithFormat:@"Paste 1 File from %@", [self sourceLabel]];
+    title = [NSString stringWithFormat:@"Paste 1 Item from %@", [self sourceLabel]];
   } else {
-    title = [NSString stringWithFormat:@"Paste %lu Files from %@",
+    title = [NSString stringWithFormat:@"Paste %lu Items from %@",
                                        (unsigned long)count, [self sourceLabel]];
   }
 
-  NSMenuItem *item =
-      [[NSMenuItem alloc] initWithTitle:title
-                                 action:hasPending ? @selector(pasteFromDeskflow:) : nil
-                          keyEquivalent:@""];
+  NSMenuItem *item = [menu addItemWithTitle:title
+                                     action:hasPending ? @selector(pasteFromDeskflow:) : nil
+                              keyEquivalent:@""];
+  item.target = self;  // Required in macOS 26 for action dispatch to work
   item.image = _toolbarIcon;
   item.enabled = hasPending;
-  [menu addItem:item];
 
   return menu;
 }
@@ -252,35 +266,38 @@ static void extLog(NSString *fmt, ...) {
 #pragma mark - Paste Action
 
 - (void)pasteFromDeskflow:(id)sender {
-  NSURL *targetURL = [[FIFinderSyncController defaultController] targetedURL];
+  NSLog(@"[DeskflowFinderSync] pasteFromDeskflow: called");
+  // Step log
+  NSArray *d0 = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+  NSString *slog = [d0.firstObject stringByAppendingPathComponent:@"steps.log"];
+  void (^S)(NSString *) = ^(NSString *s){ NSString *l=[s stringByAppendingString:@"\n"]; NSFileHandle *f=[NSFileHandle fileHandleForWritingAtPath:slog]; if(!f){[@"" writeToFile:slog atomically:NO encoding:NSUTF8StringEncoding error:nil];f=[NSFileHandle fileHandleForWritingAtPath:slog];} [f seekToEndOfFile];[f writeData:[l dataUsingEncoding:NSUTF8StringEncoding]];[f closeFile]; };
+  S(@"A: entered");
 
-  if (!targetURL) {
-    // Fallback: use currently selected items' parent, or Desktop
-    NSArray *selected = [[FIFinderSyncController defaultController] selectedItemURLs];
-    if (selected.firstObject) {
-      targetURL = [selected.firstObject URLByDeletingLastPathComponent];
-    } else {
-      NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDesktopDirectory, NSUserDomainMask, YES);
-      targetURL = [NSURL fileURLWithPath:paths.firstObject];
+  // Resolve target directory safely
+  NSString *targetPath = nil;
+  @try {
+    NSURL *targetURL = [[FIFinderSyncController defaultController] targetedURL];
+    if (!targetURL) {
+      NSArray *selected = [[FIFinderSyncController defaultController] selectedItemURLs];
+      targetURL = selected.firstObject
+          ? [selected.firstObject URLByDeletingLastPathComponent]
+          : [NSURL fileURLWithPath:NSHomeDirectory()];
     }
+    BOOL isDir = NO;
+    if (targetURL && [[NSFileManager defaultManager] fileExistsAtPath:targetURL.path isDirectory:&isDir] && !isDir) {
+      targetURL = [targetURL URLByDeletingLastPathComponent];
+    }
+    targetPath = targetURL.path;
+  } @catch (NSException *e) {
+    NSLog(@"[DeskflowFinderSync] exception getting target: %@", e);
   }
+  if (!targetPath) targetPath = NSHomeDirectory();
+  S([NSString stringWithFormat:@"B: targetPath=%@", targetPath]);
+  NSLog(@"[DeskflowFinderSync] paste to: %@", targetPath);
 
-  // Ensure we have a directory (not a file)
-  BOOL isDir = NO;
-  if ([[NSFileManager defaultManager] fileExistsAtPath:targetURL.path isDirectory:&isDir] && !isDir) {
-    targetURL = [targetURL URLByDeletingLastPathComponent];
-  }
-
-  NSString *targetPath = [targetURL path];
-  extLog(@"[Ext] paste to: %@", targetPath);
-
-  // Primary: send via socket (low latency)
-  if ([self sendPasteViaSocket:targetPath]) {
-    extLog(@"[Ext] paste request sent via socket");
-    return;
-  }
-
-  // Fallback: notification
+  // Use NSDistributedNotification — sandbox allows this, unlike Unix socket connect()
+  // (errno=1/EPERM blocks socket connect from sandboxed extension to /tmp)
+  S(@"C: sending via notification");
   NSDictionary *userInfo = @{
     @"targetDirectory" : targetPath,
     @"timestamp" : @([[NSDate date] timeIntervalSince1970])
@@ -290,7 +307,8 @@ static void extLog(NSString *fmt, ...) {
                     object:nil
                   userInfo:userInfo
        deliverImmediately:YES];
-  extLog(@"[Ext] paste request sent via notification (fallback)");
+  S(@"D: notification sent");
+  extLog(@"[Ext] paste request sent via notification to %@", targetPath);
 }
 
 @end
