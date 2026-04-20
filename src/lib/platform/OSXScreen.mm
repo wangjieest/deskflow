@@ -1355,10 +1355,13 @@ pascal OSStatus OSXScreen::userSwitchCallback(EventHandlerCallRef nextHandler, E
   IEventQueue *events = screen->getEvents();
 
   if (kind == kEventSystemUserSessionDeactivated) {
-    LOG_DEBUG("user session deactivated");
-    events->addEvent(Event(EventTypes::ScreenSuspend, screen->getEventTarget()));
+    // Screen lock triggers session deactivation. We do NOT disconnect here
+    // because: (1) the TCP connection stays alive, (2) reconnecting after
+    // unlock adds unnecessary delay. Real system sleep is handled separately
+    // via kIOMessageSystemWillSleep which does trigger ScreenSuspend.
+    LOG_DEBUG("user session deactivated (screen lock) — keeping connection");
   } else if (kind == kEventSystemUserSessionActivated) {
-    LOG_DEBUG("user session activated");
+    LOG_DEBUG("user session activated (screen unlock)");
     events->addEvent(Event(EventTypes::ScreenResume, screen->getEventTarget()));
   }
   return (CallNextEventHandler(nextHandler, theEvent));
