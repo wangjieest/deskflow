@@ -1122,20 +1122,10 @@ bool Client::injectSourceInfoToClipboard(const IClipboard &src, Clipboard &dst)
 #if defined(__APPLE__)
 void Client::triggerAutoDownloadForCmdV(size_t fileCount, uint64_t totalSize)
 {
-  // Prevent concurrent downloads — two CLIPBOARD_META messages arrive back-to-back
-  // and both would try to use ClipboardTransferClient concurrently (not thread-safe).
+  // Prevent concurrent downloads (two CLIPBOARD_META arrive back-to-back).
   bool expected = false;
   if (!m_autoDownloadInProgress.compare_exchange_strong(expected, true)) {
-    LOG_DEBUG("[AutoDownload] skipping — another download already in progress");
-    return;
-  }
-
-  // Only auto-download for small payloads (≤10 files, ≤20MB total)
-  const size_t kMaxFiles = 10;
-  const uint64_t kMaxSize = 20 * 1024 * 1024;
-
-  if (fileCount == 0 || fileCount > kMaxFiles || (totalSize > 0 && totalSize > kMaxSize)) {
-    m_autoDownloadInProgress.store(false);
+    LOG_DEBUG("[AutoDownload] skipping — already in progress");
     return;
   }
 
