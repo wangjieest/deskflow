@@ -661,6 +661,25 @@ void MainWindow::open()
       return;
     startCore();
   }
+
+#ifdef Q_OS_MACOS
+  // Prompt once to enable the Finder extension for right-click paste support
+  if (!Settings::value(Settings::Gui::FinderExtPrompted).toBool()) {
+    Settings::setValue(Settings::Gui::FinderExtPrompted, true);
+    if (!isFinderSyncExtensionEnabled()) {
+      QTimer::singleShot(800, this, [this] {
+        auto btn = QMessageBox::information(
+            this, tr("Enable Finder Extension"),
+            tr("AutoDeskflow includes a Finder extension that adds\n"
+               "\"Paste N Items from <machine>\" to the right-click menu.\n\n"
+               "Would you like to enable it now?"),
+            QMessageBox::Yes | QMessageBox::No);
+        if (btn == QMessageBox::Yes)
+          showFinderExtensionManagement();
+      });
+    }
+  }
+#endif
 }
 
 void MainWindow::createMenuBar()
