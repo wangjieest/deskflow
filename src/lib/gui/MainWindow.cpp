@@ -646,14 +646,9 @@ void MainWindow::open()
   const auto kCriticalDialogDelay = 100;
   QTimer::singleShot(kCriticalDialogDelay, this, &messages::raiseCriticalDialog);
 
-  if (!Settings::value(Settings::Gui::AutoUpdateCheck).isValid()) {
-    Settings::setValue(Settings::Gui::AutoUpdateCheck, messages::showUpdateCheckOption(this));
-  }
-
+  // Auto update check disabled by default for AutoDeskflow
   if (Settings::value(Settings::Gui::AutoUpdateCheck).toBool()) {
     m_versionChecker.checkLatest();
-  } else {
-    qDebug() << "skipping check for new version, disabled";
   }
 
   if (Settings::value(Settings::Gui::AutoStartCore).toBool()) {
