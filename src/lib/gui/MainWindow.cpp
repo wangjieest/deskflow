@@ -1335,10 +1335,13 @@ void MainWindow::initDiscoveryService()
 {
   m_discoveryService = new DiscoveryService(this);
 
-  // Load token from settings, fallback to username
+  // Load token from settings, fallback to username + hash suffix
+  // Hash suffix prevents others from guessing/joining the group by username alone
   QString token = Settings::value(Settings::Core::GroupToken).toString();
   if (token.isEmpty()) {
-    token = qEnvironmentVariable("USERNAME", qEnvironmentVariable("USER", "autodeskflow")).toLower();
+    QString user = qEnvironmentVariable("USERNAME", qEnvironmentVariable("USER", "autodeskflow")).toLower();
+    QByteArray hash = QCryptographicHash::hash(user.toUtf8(), QCryptographicHash::Sha256);
+    token = user + "-" + hash.toHex().left(8);
   }
   m_discoveryService->setToken(token);
 
