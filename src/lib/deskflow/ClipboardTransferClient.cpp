@@ -142,8 +142,9 @@ void ClipboardTransferClient::requestFile(
               sessionId, requestId, remotePath.c_str());
 
     // --- read response packets ---
-    // Server uses ProtocolUtil::writef to raw socket (no length prefix).
-    // Wire format: "DFCH"(4) + requestId(4 BE) + chunkType(1) + dataLen(4 BE) + data(N)
+    // Auto-detect format: server may send with or without 4-byte length prefix.
+    // With prefix: pktLen(4) + "DFCH"(4) + reqId(4) + type(1) + dataLen(4) + data
+    // Without prefix: "DFCH"(4) + reqId(4) + type(1) + dataLen(4) + data
     std::string fileName = remotePath;
     auto slash = fileName.find_last_of("/\\");
     if (slash != std::string::npos) fileName = fileName.substr(slash + 1);
@@ -151,28 +152,49 @@ void ClipboardTransferClient::requestFile(
 
     bool success = false;
     while (true) {
-      // ProtocolUtil::writef prepends a 4-byte BE packet-length before the message.
-      // Wire: pktLen(4) + "DFCH"(4) + reqId(4) + chunkType(1) + dataLen(4) + data(N)
-      uint8_t lenBuf[4];
-      if (!recvAll(fd, lenBuf, 4)) {
-        flog("[Transfer] FAILED read packet length (errno=%d)", errno);
+      // Read first 4 bytes — could be length prefix or DFCH magic
+      uint8_t first4[4];
+      if (!recvAll(fd, first4, 4)) {
+        LOG_ERR("[ClipboardTransferClient] failed to read header");
         break;
       }
-      uint32_t pktLen = (uint32_t(lenBuf[0])<<24)|(uint32_t(lenBuf[1])<<16)|(uint32_t(lenBuf[2])<<8)|lenBuf[3];
-      if (pktLen < 9 || pktLen > 64*1024*1024) {
-        flog("[Transfer] BAD packet length %u (bytes: %02x%02x%02x%02x)",
-                pktLen, lenBuf[0], lenBuf[1], lenBuf[2], lenBuf[3]);
-        break;
+
+      std::vector<uint8_t> pkt;
+      bool isDFCH = (first4[0]=='D' && first4[1]=='F' && first4[2]=='C' && first4[3]=='H');
+
+      if (isDFCH) {
+        // No length prefix — read remaining 9 bytes of header (reqId+type+dataLen)
+        uint8_t rest[9];
+        if (!recvAll(fd, rest, 9)) {
+          LOG_ERR("[ClipboardTransferClient] failed to read DFCH rest");
+          break;
+        }
+        uint32_t dataLen = (uint32_t(rest[5])<<24)|(uint32_t(rest[6])<<16)|(uint32_t(rest[7])<<8)|rest[8];
+        pkt.resize(13 + dataLen);
+        memcpy(pkt.data(), first4, 4);
+        memcpy(pkt.data() + 4, rest, 9);
+        if (dataLen > 0 && !recvAll(fd, pkt.data() + 13, dataLen)) {
+          LOG_ERR("[ClipboardTransferClient] failed to read chunk data (%u bytes)", dataLen);
+          break;
+        }
+      } else {
+        // Length prefix — first4 is packet length
+        uint32_t pktLen = (uint32_t(first4[0])<<24)|(uint32_t(first4[1])<<16)|(uint32_t(first4[2])<<8)|first4[3];
+        if (pktLen < 9 || pktLen > 64*1024*1024) {
+          LOG_ERR("[ClipboardTransferClient] bad packet length %u", pktLen);
+          break;
+        }
+        pkt.resize(pktLen);
+        if (!recvAll(fd, pkt.data(), pktLen)) {
+          LOG_ERR("[ClipboardTransferClient] failed to read packet body (%u bytes)", pktLen);
+          break;
+        }
+        if (pkt[0]!='D'||pkt[1]!='F'||pkt[2]!='C'||pkt[3]!='H') {
+          LOG_ERR("[ClipboardTransferClient] bad chunk magic: %02x%02x%02x%02x", pkt[0],pkt[1],pkt[2],pkt[3]);
+          break;
+        }
       }
-      std::vector<uint8_t> pkt(pktLen);
-      if (!recvAll(fd, pkt.data(), pktLen)) {
-        LOG_ERR("[ClipboardTransferClient] failed to read packet body (%u bytes)", pktLen);
-        break;
-      }
-      if (pkt[0]!='D'||pkt[1]!='F'||pkt[2]!='C'||pkt[3]!='H') {
-        flog("[Transfer] BAD chunk magic: %02x%02x%02x%02x", pkt[0],pkt[1],pkt[2],pkt[3]);
-        break;
-      }
+
       uint32_t rId      = (uint32_t(pkt[4])<<24)|(uint32_t(pkt[5])<<16)|(uint32_t(pkt[6])<<8)|pkt[7];
       uint8_t  chunkType = pkt[8];
       uint32_t dataLen  = (uint32_t(pkt[9])<<24)|(uint32_t(pkt[10])<<16)|(uint32_t(pkt[11])<<8)|pkt[12];
