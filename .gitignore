@@ -5,7 +5,8 @@
 
 # temp dirs created during build
 /build
-/dist
+/dist/*
+!/dist/*.zip
 /deps
 /tmp
 /vcpkg
