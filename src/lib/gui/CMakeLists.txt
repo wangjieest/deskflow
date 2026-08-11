@@ -139,5 +139,5 @@ target_link_libraries(${target}
 )
 
 if(APPLE)
-  target_link_libraries(${target} "-framework FinderSync")
+  target_link_libraries(${target} PRIVATE "-framework FinderSync")
 endif()
