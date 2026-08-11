@@ -1,6 +1,26 @@
 #!/bin/bash
-# 一键构建、部署、注册 AutoDeskflow（macOS）
+# 一键部署、签名、注册 AutoDeskflow（macOS）
+#
+# 用法：
+#   ./deploy-mac.sh                 # 从源码构建 → 装到 /Applications → 本机签名 → 注册扩展
+#   ./deploy-mac.sh --from-zip      # 从 dist/AutoDeskFlow-mac-<arch>.zip 部署（不编译）
+#   ./deploy-mac.sh --from-zip <路径.zip>
+#   ./deploy-mac.sh --from-app <路径.app>
+#
+# --from-zip / --from-app 是给绿色版准备的：dist-mac.sh 出的包只带 ad-hoc 签名
+# （不含任何人的个人证书），装机时在这里用本机证书重签。重签之后 Finder 扩展
+# 才能被 pluginkit 注册，TCC 权限（辅助功能/输入监控）也绑到本机身份上。
 set -e
+
+MODE="build"
+SOURCE_PATH=""
+case "${1:-}" in
+  --from-zip) MODE="zip"; SOURCE_PATH="${2:-}" ;;
+  --from-app) MODE="app"; SOURCE_PATH="${2:-}"
+              [ -n "$SOURCE_PATH" ] || { echo "--from-app 需要指定 .app 路径" >&2; exit 1; } ;;
+  "")         ;;
+  *)          echo "未知参数: $1" >&2; exit 1 ;;
+esac
 
 # 自动探测本机代码签名身份。
 #
@@ -74,40 +94,67 @@ pkill -x autodeskflow-core || true
 pkill -f DeskflowPaste || true
 sleep 1
 
-echo "=== 编译主 App (Release) ==="
-# Re-run cmake if needed (e.g. new dependencies)
-cmake -S. -Bbuild-release \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DQt6_DIR=/opt/homebrew/opt/qt/lib/cmake/Qt6 \
-  -DAPPLE_CODESIGN_DEV="$CERT" \
-  -DBUILD_TESTS=OFF \
-  > /dev/null
-cmake --build build-release --parallel "$(sysctl -n hw.ncpu)"
+if [ "$MODE" = "build" ]; then
+  echo "=== 编译主 App (Release) ==="
+  # Re-run cmake if needed (e.g. new dependencies)
+  cmake -S. -Bbuild-release \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DQt6_DIR=/opt/homebrew/opt/qt/lib/cmake/Qt6 \
+    -DAPPLE_CODESIGN_DEV="$CERT" \
+    -DBUILD_TESTS=OFF \
+    > /dev/null
+  cmake --build build-release --parallel "$(sysctl -n hw.ncpu)"
+  SRC_APP="build-release/bin/AutoDeskflow.app"
+elif [ "$MODE" = "zip" ]; then
+  ZIP="${SOURCE_PATH:-$REPO/dist/AutoDeskFlow-mac-$(uname -m).zip}"
+  [ -f "$ZIP" ] || { echo "找不到 $ZIP（先跑 ./dist-mac.sh）" >&2; exit 1; }
+  echo "=== 解包 $ZIP ==="
+  UNPACK_DIR="$(mktemp -d)"
+  trap 'rm -rf "$UNPACK_DIR"' EXIT
+  unzip -q "$ZIP" -d "$UNPACK_DIR"
+  SRC_APP="$UNPACK_DIR/AutoDeskflow.app"
+else
+  SRC_APP="$SOURCE_PATH"
+  [ -d "$SRC_APP" ] || { echo "找不到 $SRC_APP" >&2; exit 1; }
+fi
 
 echo "=== 部署主 App ==="
 # 先完整删除再复制，避免嵌套
 rm -rf "$APP_DST"
-cp -R build-release/bin/AutoDeskflow.app "$APP_DST"
+ditto "$SRC_APP" "$APP_DST"
+# 下载来的 zip 带 quarantine，不清掉 Gatekeeper 会拦
+xattr -dr com.apple.quarantine "$APP_DST" 2>/dev/null || true
 
-echo "=== 构建 & 注册 Finder 扩展 ==="
-# xcodebuild 直接构建到 PlugIns 目录，自动执行 RegisterExecutionPolicyException
-# clean 步骤会报错（不在 DerivedData 内）但 CodeSign+Register 会正常执行
-cd "$XCODE_PROJ_DIR"
-xcodebuild \
-  -project DeskflowPaste.xcodeproj \
-  -scheme DeskflowPaste \
-  -configuration Release \
-  -derivedDataPath /tmp/DeskflowPasteBuild \
-  DEVELOPMENT_TEAM="$TEAM_ID" \
-  CODE_SIGN_STYLE=Automatic \
-  CONFIGURATION_BUILD_DIR="$PLUGINS_DIR" \
-  SKIP_INSTALL=YES \
-  clean build 2>&1 | grep -E "error:|RegisterExecution|CodeSign|BUILD SUCCEEDED|BUILD FAILED" || true
+if [ "$MODE" = "build" ]; then
+  echo "=== 构建 & 注册 Finder 扩展 ==="
+  # xcodebuild 直接构建到 PlugIns 目录，自动执行 RegisterExecutionPolicyException
+  # clean 步骤会报错（不在 DerivedData 内）但 CodeSign+Register 会正常执行
+  cd "$XCODE_PROJ_DIR"
+  xcodebuild \
+    -project DeskflowPaste.xcodeproj \
+    -scheme DeskflowPaste \
+    -configuration Release \
+    -derivedDataPath /tmp/DeskflowPasteBuild \
+    DEVELOPMENT_TEAM="$TEAM_ID" \
+    CODE_SIGN_STYLE=Automatic \
+    CONFIGURATION_BUILD_DIR="$PLUGINS_DIR" \
+    SKIP_INSTALL=YES \
+    clean build 2>&1 | grep -E "error:|RegisterExecution|CodeSign|BUILD SUCCEEDED|BUILD FAILED" || true
+  cd - > /dev/null
+fi
 
-cd - > /dev/null
-
-echo "=== 签名主 App ==="
-codesign --force --sign "$CERT" "$APP_DST"
+echo "=== 用本机证书重签（由内到外）==="
+# 绿色版进来时是 ad-hoc 签名，整包都得换成本机身份，只签顶层不够
+codesign --force --deep --sign "$CERT" --timestamp=none "$APP_DST"
+# appex 必须带 entitlements 单独重签，否则 pluginkit 不认
+APPEX="$PLUGINS_DIR/DeskflowPaste.appex"
+if [ -d "$APPEX" ]; then
+  codesign --force --sign "$CERT" --timestamp=none \
+    --entitlements "$XCODE_PROJ_DIR/DeskflowPaste.entitlements" "$APPEX"
+fi
+# 重签顶层，重新封印 PlugIns
+codesign --force --sign "$CERT" --timestamp=none "$APP_DST"
+codesign --verify --deep --strict "$APP_DST" && echo "✓ 签名校验通过"
 
 echo "=== 启动 ==="
 open "$APP_DST"

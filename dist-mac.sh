@@ -8,9 +8,18 @@
 #   ./dist-mac.sh --no-build   # 跳过构建，直接用 build-release/bin 里现成的 .app
 #   ./dist-mac.sh --inspect    # 只审查已打好的 zip，不重新打包
 #
-# 签名身份自动探测，无需手改脚本；也可显式指定：
-#   CERT="Apple Development: xxx (TEAMID)" ./dist-mac.sh
-#   CERT=- ./dist-mac.sh                     # ad-hoc 签名
+# 签名：默认 ad-hoc，发布包里不带任何人的个人证书。
+#
+# Apple Silicon 上「完全不签名」不是一个选项 —— arm64 二进制没有签名会被内核
+# 直接 SIGKILL（实测 rc=137）。ad-hoc 是最低档，不需要证书、纯本地生成。
+#
+# 代价是 Finder 扩展（DeskflowPaste.appex）注册不上：pluginkit 要求 appex 有带
+# entitlements 的真实签名 + TeamID。装机时跑 `./deploy-mac.sh --from-zip`
+# 用本机证书重签即可，顺带把 TCC 权限绑到本机身份上。
+#
+# 要在打包阶段就用真证书：
+#   CERT=auto ./dist-mac.sh                     # 自动探测本机证书
+#   CERT=<证书 hash 或身份名> ./dist-mac.sh     # 指定
 
 set -euo pipefail
 
@@ -182,17 +191,21 @@ if [ "${1:-}" = "--inspect" ]; then
   exit 0
 fi
 
-if [ -z "${CERT:-}" ]; then
+# 默认 ad-hoc；CERT=auto 时才去钥匙串里找真证书
+CERT="${CERT:--}"
+if [ "$CERT" = "auto" ]; then
   if IDENTITY="$(detect_codesign_identity)"; then
-    CERT_NAME="$(printf '%s' "$IDENTITY" | cut -f2)"
     # 传给 codesign / CMake 一律用 hash：上游 add_custom_command 里的
     # codesign --sign ${APPLE_CODESIGN_DEV} 没加引号，身份名里的空格和括号会被拆散
     CERT="$(printf '%s' "$IDENTITY" | cut -f1)"
-    echo "签名身份: $CERT_NAME  (team $(printf '%s' "$IDENTITY" | cut -f3))"
+    echo "签名身份: $(printf '%s' "$IDENTITY" | cut -f2)  (team $(printf '%s' "$IDENTITY" | cut -f3))"
   else
     CERT="-"
-    warn "钥匙串里没有可用签名证书，改用 ad-hoc 签名（Finder 扩展可能无法注册）"
+    warn "钥匙串里没有可用证书，退回 ad-hoc"
   fi
+fi
+if [ "$CERT" = "-" ]; then
+  echo "签名身份: ad-hoc（发布包不带个人证书；装机时用 ./deploy-mac.sh --from-zip 重签）"
 fi
 
 if [ "${1:-}" != "--no-build" ]; then
