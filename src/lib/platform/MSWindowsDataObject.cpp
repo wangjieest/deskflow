@@ -78,14 +78,14 @@ STDMETHODIMP MSWindowsDataObject::QueryInterface(REFIID riid, void **ppv)
 STDMETHODIMP_(ULONG) MSWindowsDataObject::AddRef()
 {
   LONG count = InterlockedIncrement(&m_refCount);
-  LOG_DEBUG2("MSWindowsDataObject::AddRef() -> %d", count);
+  LOG_VERBOSE("MSWindowsDataObject::AddRef() -> %d", count);
   return count;
 }
 
 STDMETHODIMP_(ULONG) MSWindowsDataObject::Release()
 {
   LONG count = InterlockedDecrement(&m_refCount);
-  LOG_DEBUG2("MSWindowsDataObject::Release() -> %d", count);
+  LOG_VERBOSE("MSWindowsDataObject::Release() -> %d", count);
 
   if (count == 0) {
     delete this;
@@ -496,7 +496,7 @@ STDMETHODIMP MSWindowsDataObject::GetAsyncMode(BOOL *pfIsOpAsync)
   }
 
   *pfIsOpAsync = m_asyncMode;
-  LOG_DEBUG2("MSWindowsDataObject::GetAsyncMode() -> %d", m_asyncMode);
+  LOG_VERBOSE("MSWindowsDataObject::GetAsyncMode() -> %d", m_asyncMode);
   return S_OK;
 }
 
@@ -521,7 +521,7 @@ STDMETHODIMP MSWindowsDataObject::InOperation(BOOL *pfInAsyncOp)
   }
 
   *pfInAsyncOp = m_inOperation;
-  LOG_DEBUG2("MSWindowsDataObject::InOperation() -> %d", m_inOperation);
+  LOG_VERBOSE("MSWindowsDataObject::InOperation() -> %d", m_inOperation);
   return S_OK;
 }
 
@@ -674,12 +674,12 @@ MSWindowsFormatEnumerator::MSWindowsFormatEnumerator(const std::vector<FORMATETC
       m_formats(formats),
       m_current(0)
 {
-  LOG_DEBUG2("MSWindowsFormatEnumerator created with %zu formats", m_formats.size());
+  LOG_VERBOSE("MSWindowsFormatEnumerator created with %zu formats", m_formats.size());
 }
 
 MSWindowsFormatEnumerator::~MSWindowsFormatEnumerator()
 {
-  LOG_DEBUG2("MSWindowsFormatEnumerator destroyed");
+  LOG_VERBOSE("MSWindowsFormatEnumerator destroyed");
 }
 
 STDMETHODIMP MSWindowsFormatEnumerator::QueryInterface(REFIID riid, void **ppv)

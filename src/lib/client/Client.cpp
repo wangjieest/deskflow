@@ -596,7 +596,7 @@ void Client::setOptions(const OptionsList &options)
 
   // Note: m_maximumClipboardSize == 0 now means "use P2P for all transfers", not "disable"
   if (!m_maximumClipboardSize) {
-    LOG_NOTE("clipboard size threshold is 0, all supported formats will use P2P mode");
+    LOG_INFO("clipboard size threshold is 0, all supported formats will use P2P mode");
   }
 
   m_screen->setOptions(options);
@@ -638,7 +638,7 @@ void Client::sendClipboard(ClipboardID id)
     // so we don't skip based on size - the server will handle routing
     if (m_maximumClipboardSize > 0 && data.size() >= m_maximumClipboardSize * 1024) {
       LOG(
-          (CLOG_NOTE "skipping clipboard transfer because the clipboard"
+          (CLOG_INFO "skipping clipboard transfer because the clipboard"
                      " contents exceeds the %i MB size limit set by the server",
            m_maximumClipboardSize / 1024)
       );

@@ -1354,7 +1354,7 @@ void Server::processOptions()
     } else if (id == kOptionClipboardSharingSize) {
       if (value <= 0) {
         m_maximumClipboardSize = 0;
-        LOG_NOTE(
+        LOG_INFO(
             "clipboard size threshold is 0, all supported formats "
             "will use ClipboardTransferThread (P2P mode)"
         );
@@ -2505,7 +2505,7 @@ void Server::parseFileListToWhitelist(ClipboardInfo &clipboard, const std::strin
           std::string path = item["path"].get<std::string>();
           if (!path.empty()) {
             clipboard.m_allowedFilePaths.insert(path);
-            LOG_DEBUG1("added file to whitelist: %s", path.c_str());
+            LOG_VERBOSE("added file to whitelist: %s", path.c_str());
           }
         }
       }
@@ -2658,7 +2658,7 @@ uint32_t Server::requestFileP2P(
 
 void Server::handleP2PFileChunk(uint32_t requestId, FileChunkType type, const std::string &data)
 {
-  LOG_DEBUG1("[Server] P2P chunk: requestId=%u, type=%d, size=%zu", requestId, static_cast<int>(type), data.size());
+  LOG_VERBOSE("[Server] P2P chunk: requestId=%u, type=%d, size=%zu", requestId, static_cast<int>(type), data.size());
 
   auto it = m_p2pFileTransfers.find(requestId);
   if (it == m_p2pFileTransfers.end()) {
@@ -2688,7 +2688,7 @@ void Server::handleP2PFileChunk(uint32_t requestId, FileChunkType type, const st
     case FileChunkType::Data: {
       it->second.data.insert(it->second.data.end(), data.begin(), data.end());
       it->second.bytesTransferred += data.size();
-      LOG_DEBUG1(
+      LOG_VERBOSE(
           "[Server] P2P data chunk: %zu bytes, total=%llu/%llu", data.size(), it->second.bytesTransferred,
           it->second.fileSize
       );

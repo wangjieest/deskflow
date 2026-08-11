@@ -286,7 +286,7 @@ void FileTransferConnection::handleDataReady()
       return;
     }
 
-    LOG_DEBUG1("[FileTransfer] Received chunk: type=%u, size=%zu", chunkType, data.size());
+    LOG_VERBOSE("[FileTransfer] Received chunk: type=%u, size=%zu", chunkType, data.size());
 
     // Call callback with chunk data
     m_dataCallback(static_cast<FileChunkType>(chunkType), data);

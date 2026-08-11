@@ -57,7 +57,7 @@ void HelloBack::handleHello(deskflow::IStream *stream, const std::string &client
   auto helloBackMinor = m_minorVersion;
 
   if (shouldDowngrade(serverMajor, serverMinor)) {
-    LOG_NOTE("downgrading to %d.%d protocol for server", serverMajor, serverMinor);
+    LOG_INFO("downgrading to %d.%d protocol for server", serverMajor, serverMinor);
     helloBackMinor = serverMinor;
   } else if (serverMajor < m_majorVersion || (serverMajor == m_majorVersion && serverMinor < m_minorVersion)) {
     m_deps->incompatible(serverMajor, serverMinor);

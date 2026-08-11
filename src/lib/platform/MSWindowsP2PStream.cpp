@@ -54,14 +54,14 @@ STDMETHODIMP MSWindowsP2PStream::QueryInterface(REFIID riid, void **ppv)
 STDMETHODIMP_(ULONG) MSWindowsP2PStream::AddRef()
 {
   LONG count = InterlockedIncrement(&m_refCount);
-  LOG_DEBUG2("MSWindowsP2PStream::AddRef() -> %d (%S)", count, m_fileName.c_str());
+  LOG_VERBOSE("MSWindowsP2PStream::AddRef() -> %d (%S)", count, m_fileName.c_str());
   return count;
 }
 
 STDMETHODIMP_(ULONG) MSWindowsP2PStream::Release()
 {
   LONG count = InterlockedDecrement(&m_refCount);
-  LOG_DEBUG2("MSWindowsP2PStream::Release() -> %d (%S)", count, m_fileName.c_str());
+  LOG_VERBOSE("MSWindowsP2PStream::Release() -> %d (%S)", count, m_fileName.c_str());
 
   if (count == 0) {
     delete this;
@@ -243,7 +243,7 @@ void MSWindowsP2PStream::onDataReceived(const void *data, size_t size)
   // Add data to buffer
   m_dataChunks.push(std::string(static_cast<const char *>(data), size));
 
-  LOG_DEBUG2("Data received: %zu bytes, buffer size: %zu chunks", size, m_dataChunks.size());
+  LOG_VERBOSE("Data received: %zu bytes, buffer size: %zu chunks", size, m_dataChunks.size());
 
   // Notify waiting Read() calls
   m_bufferCV.notify_one();

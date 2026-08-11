@@ -1332,7 +1332,7 @@ void ServerProxy::fileChunkReceived()
     );
 
     // Log for GUI monitoring
-    LOG_NOTE("FILE_TRANSFER_START: id=%u, name=%s, size=%llu", requestId, fileName.c_str(), fileSize);
+    LOG_INFO("FILE_TRANSFER_START: id=%u, name=%s, size=%llu", requestId, fileName.c_str(), fileSize);
 
     // Check if we already have a pending request (created during requestFile)
     auto it = m_fileTransfers.find(requestId);
@@ -1380,7 +1380,7 @@ void ServerProxy::fileChunkReceived()
     it->second.data.insert(it->second.data.end(), data.begin(), data.end());
     it->second.bytesTransferred += data.size();
 
-    LOG_DEBUG1(
+    LOG_VERBOSE(
         "file data chunk: id=%u, chunk=%zu, total=%llu/%llu", requestId, data.size(), it->second.bytesTransferred,
         it->second.fileSize
     );
@@ -1393,7 +1393,7 @@ void ServerProxy::fileChunkReceived()
 
       // Log every 10%
       if ((currentPercent / 10) > (prevPercent / 10)) {
-        LOG_NOTE(
+        LOG_INFO(
             "FILE_TRANSFER_PROGRESS: id=%u, percent=%d, bytes=%llu, total=%llu", requestId, currentPercent,
             it->second.bytesTransferred, it->second.fileSize
         );
@@ -1432,7 +1432,7 @@ void ServerProxy::fileChunkReceived()
         // Store completed directory path
         m_completedFilePaths.push_back(tempPath);
 
-        LOG_NOTE(
+        LOG_INFO(
             "FILE_TRANSFER_COMPLETE: id=%u, file=%s, path=%s", requestId, it->second.fileName.c_str(), tempPath.c_str()
         );
 
@@ -1443,7 +1443,7 @@ void ServerProxy::fileChunkReceived()
         it->second.hasError = true;
         it->second.errorMessage = "Failed to create directory";
 
-        LOG_NOTE("FILE_TRANSFER_ERROR: id=%u, error=Failed to create directory", requestId);
+        LOG_INFO("FILE_TRANSFER_ERROR: id=%u, error=Failed to create directory", requestId);
       }
     } else {
       // Save file
@@ -1459,7 +1459,7 @@ void ServerProxy::fileChunkReceived()
         m_completedFilePaths.push_back(tempPath);
 
         // Log progress for GUI monitoring
-        LOG_NOTE(
+        LOG_INFO(
             "FILE_TRANSFER_COMPLETE: id=%u, file=%s, path=%s", requestId, it->second.fileName.c_str(), tempPath.c_str()
         );
 
@@ -1470,7 +1470,7 @@ void ServerProxy::fileChunkReceived()
         it->second.hasError = true;
         it->second.errorMessage = "Failed to save file";
 
-        LOG_NOTE("FILE_TRANSFER_ERROR: id=%u, error=Failed to save file", requestId);
+        LOG_INFO("FILE_TRANSFER_ERROR: id=%u, error=Failed to save file", requestId);
       }
     }
 
@@ -1578,7 +1578,7 @@ void ServerProxy::handleFileTransferPort()
 
     // Set callback to handle received file chunks
     m_fileTransferConn->setDataCallback([this, requestId](FileChunkType type, const std::string &data) {
-      LOG_DEBUG1("[FileTransfer] Received chunk via dedicated channel: type=%d, size=%zu", static_cast<int>(type), data.size());
+      LOG_VERBOSE("[FileTransfer] Received chunk via dedicated channel: type=%d, size=%zu", static_cast<int>(type), data.size());
 
       // Simulate receiving via main stream for existing logic compatibility
       // We manually update the file transfer state
@@ -1612,7 +1612,7 @@ void ServerProxy::handleFileTransferPort()
         case FileChunkType::Data: {
           it->second.data.insert(it->second.data.end(), data.begin(), data.end());
           it->second.bytesTransferred += data.size();
-          LOG_DEBUG1("[FileTransfer] Data chunk: %zu bytes, total=%llu/%llu",
+          LOG_VERBOSE("[FileTransfer] Data chunk: %zu bytes, total=%llu/%llu",
                      data.size(), it->second.bytesTransferred, it->second.fileSize);
           break;
         }
@@ -1767,7 +1767,7 @@ void ServerProxy::sendFileChunkToServer(uint32_t requestId, uint8_t chunkType, c
 
 void ServerProxy::handleFileChunkFromP2P(uint32_t requestId, FileChunkType type, const std::string &data)
 {
-  LOG_DEBUG1("[FileTransfer] P2P chunk received: type=%d, size=%zu, requestId=%u", static_cast<int>(type), data.size(), requestId);
+  LOG_VERBOSE("[FileTransfer] P2P chunk received: type=%d, size=%zu, requestId=%u", static_cast<int>(type), data.size(), requestId);
 
   auto it = m_fileTransfers.find(requestId);
   if (it == m_fileTransfers.end()) {
@@ -1798,7 +1798,7 @@ void ServerProxy::handleFileChunkFromP2P(uint32_t requestId, FileChunkType type,
     case FileChunkType::Data: {
       it->second.data.insert(it->second.data.end(), data.begin(), data.end());
       it->second.bytesTransferred += data.size();
-      LOG_DEBUG1("[FileTransfer] P2P data chunk: %zu bytes, total=%llu/%llu", data.size(), it->second.bytesTransferred, it->second.fileSize);
+      LOG_VERBOSE("[FileTransfer] P2P data chunk: %zu bytes, total=%llu/%llu", data.size(), it->second.bytesTransferred, it->second.fileSize);
       break;
     }
 

@@ -339,7 +339,7 @@ bool ClientProxy1_5::sendFileWithMetadata(
       ProtocolUtil::writef(stream, kMsgDFileChunk, requestId, static_cast<uint8_t>(FileChunkType::Data), &chunkData);
       totalSent += bytesRead;
 
-      LOG_DEBUG1("sent file data chunk: %zu bytes (total: %llu/%llu)", bytesRead, totalSent, fileSize);
+      LOG_VERBOSE("sent file data chunk: %zu bytes (total: %llu/%llu)", bytesRead, totalSent, fileSize);
     }
   }
 
@@ -494,7 +494,7 @@ void ClientProxy1_5::handleFileChunkFromClient()
     state.data.insert(state.data.end(), data.begin(), data.end());
     state.bytesReceived += data.size();
 
-    LOG_DEBUG1(
+    LOG_VERBOSE(
         "[FileTransfer] received data chunk: %zu bytes (total: %llu/%llu)", data.size(), state.bytesReceived,
         state.fileSize
     );
