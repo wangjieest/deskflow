@@ -1,0 +1,17 @@
+/* Finder toolbar item name */
+"AutoDeskflow Paste" = "AutoDeskflow Paste";
+
+/* Finder toolbar item tooltip */
+"Paste files copied on another computer" = "Paste files copied on another computer";
+
+/* Paste source when its name is unknown */
+"another computer" = "another computer";
+
+/* Finder menu item when nothing was copied */
+"No Items to Paste" = "No Items to Paste";
+
+/* %@ is the source computer */
+"Paste 1 Item from %@" = "Paste 1 Item from %@";
+
+/* %lu is the item count, %@ the source computer */
+"Paste %lu Items from %@" = "Paste %lu Items from %@";

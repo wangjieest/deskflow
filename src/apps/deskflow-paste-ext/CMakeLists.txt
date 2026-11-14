@@ -6,9 +6,19 @@
 
 set(EXT_TARGET DeskflowPaste)
 
+set(EXT_LOCALIZATIONS
+  en.lproj/Localizable.strings
+  zh-Hans.lproj/Localizable.strings
+)
+foreach(strings ${EXT_LOCALIZATIONS})
+  get_filename_component(lproj "${strings}" DIRECTORY)
+  set_source_files_properties(${strings} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/${lproj}")
+endforeach()
+
 add_library(${EXT_TARGET} MODULE
   FinderSync.h
   FinderSync.m
+  ${EXT_LOCALIZATIONS}
 )
 
 set_target_properties(${EXT_TARGET} PROPERTIES

@@ -76,7 +76,7 @@ static void extLog(NSString *fmt, ...) {
 #pragma mark - Toolbar Item (FIFinderSync protocol)
 
 - (NSString *)toolbarItemName {
-  return @"Deskflow Paste";
+  return NSLocalizedString(@"AutoDeskflow Paste", @"Finder toolbar item name");
 }
 
 - (NSImage *)toolbarItemImage {
@@ -84,7 +84,7 @@ static void extLog(NSString *fmt, ...) {
 }
 
 - (NSString *)toolbarItemToolTip {
-  return @"Paste files from remote Deskflow machine";
+  return NSLocalizedString(@"Paste files copied on another computer", @"Finder toolbar item tooltip");
 }
 
 #pragma mark - Notification Handler
@@ -108,7 +108,7 @@ static void extLog(NSString *fmt, ...) {
   NSDictionary *state = [self loadClipboardState];
   NSString *source = state[@"source"];
   if (source.length > 0) return source;
-  return @"remote";
+  return NSLocalizedString(@"another computer", @"Paste source when its name is unknown");
 }
 
 #pragma mark - Socket Communication
@@ -255,12 +255,14 @@ static void extLog(NSString *fmt, ...) {
 
   NSString *title;
   if (!hasPending) {
-    title = @"No Items to Paste";
+    title = NSLocalizedString(@"No Items to Paste", @"Finder menu item when nothing was copied");
   } else if (count == 1) {
-    title = [NSString stringWithFormat:@"Paste 1 Item from %@", [self sourceLabel]];
+    title = [NSString stringWithFormat:NSLocalizedString(@"Paste 1 Item from %@", @"%@ is the source computer"),
+                                       [self sourceLabel]];
   } else {
-    title = [NSString stringWithFormat:@"Paste %lu Items from %@",
-                                       (unsigned long)count, [self sourceLabel]];
+    title = [NSString
+        stringWithFormat:NSLocalizedString(@"Paste %lu Items from %@", @"%lu is the item count, %@ the source computer"),
+                         (unsigned long)count, [self sourceLabel]];
   }
 
   NSMenuItem *item = [menu addItemWithTitle:title

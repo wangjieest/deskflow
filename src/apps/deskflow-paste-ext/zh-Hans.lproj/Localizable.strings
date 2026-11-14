@@ -1,0 +1,17 @@
+/* Finder toolbar item name */
+"AutoDeskflow Paste" = "AutoDeskflow 粘贴";
+
+/* Finder toolbar item tooltip */
+"Paste files copied on another computer" = "粘贴在另一台计算机上复制的文件";
+
+/* Paste source when its name is unknown */
+"another computer" = "另一台计算机";
+
+/* Finder menu item when nothing was copied */
+"No Items to Paste" = "没有可粘贴的项目";
+
+/* %@ is the source computer */
+"Paste 1 Item from %@" = "从 %@ 粘贴 1 项";
+
+/* %lu is the item count, %@ the source computer */
+"Paste %lu Items from %@" = "从 %2$@ 粘贴 %1$lu 项";
