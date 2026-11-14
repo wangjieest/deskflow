@@ -905,6 +905,30 @@ They show up here once they run AutoDeskflow with the same Group Token (Preferen
         <translation>正在连接主机 %1</translation>
     </message>
     <message>
+        <source>Receiving files into &quot;%1&quot;...</source>
+        <translation>正在接收文件到“%1”…</translation>
+    </message>
+    <message numerus="yes">
+        <source>Pasted %n item(s) into &quot;%1&quot;</source>
+        <translation>
+            <numerusform>已粘贴 %n 项到“%1”</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Nothing to paste: the copied files are no longer available</source>
+        <translation>没有可粘贴的内容：复制的文件已不可用</translation>
+    </message>
+    <message numerus="yes">
+        <source>Only %n item(s) could be pasted into &quot;%1&quot;, see the log for details</source>
+        <translation>
+            <numerusform>只有 %n 项成功粘贴到“%1”，详情请查看日志</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Could not paste the files from the other computer, see the log for details</source>
+        <translation>无法粘贴来自另一台计算机的文件，详情请查看日志</translation>
+    </message>
+    <message>
         <source>%1 file(s) from %2 (%3)</source>
         <translation>来自 %2 的 %1 个文件（%3）</translation>
     </message>

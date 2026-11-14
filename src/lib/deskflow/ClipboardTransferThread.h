@@ -219,9 +219,11 @@ public:
    *
    * @param destFolder Destination folder for downloaded files
    * @param timeoutMs Timeout in milliseconds (0 = infinite)
-   * @return Paths to downloaded files (empty on failure)
+   * @param allOk Optional; set to true only if every item arrived before the timeout
+   * @return Paths of the items that did arrive
    */
-  std::vector<std::string> requestFilesAndWait(const std::string &destFolder, uint32_t timeoutMs = 60000);
+  std::vector<std::string>
+  requestFilesAndWait(const std::string &destFolder, uint32_t timeoutMs = 60000, bool *allOk = nullptr);
 
   /**
    * @brief Check if there are pending files for paste

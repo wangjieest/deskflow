@@ -1665,8 +1665,57 @@ void MainWindow::onDiscoveryRoleChanged(deskflow::gui::discovery::Role role)
   }
 }
 
+void MainWindow::checkFilePaste(const QString &line)
+{
+  // "FILE_PASTE: state=done, received=3, target=/Users/me/Desktop" (target last, may contain commas)
+  static const QString kTag = QStringLiteral("FILE_PASTE:");
+  const int tagIdx = line.indexOf(kTag);
+  if (tagIdx < 0)
+    return;
+
+  const QString payload = line.mid(tagIdx + kTag.length()).trimmed();
+  const auto field = [&payload](const QString &key) -> QString {
+    const QString search = key + QLatin1Char('=');
+    int pos = payload.indexOf(search);
+    if (pos < 0)
+      return {};
+    pos += search.length();
+    const int end = payload.indexOf(QLatin1Char(','), pos);
+    return payload.mid(pos, end < 0 ? -1 : end - pos).trimmed();
+  };
+  const int targetIdx = payload.indexOf(QStringLiteral("target="));
+  const QString target = targetIdx < 0 ? QString() : payload.mid(targetIdx + 7).trimmed();
+  const QString folder = QFileInfo(target).fileName().isEmpty() ? target : QFileInfo(target).fileName();
+  const QString state = field(QStringLiteral("state"));
+  const int received = field(QStringLiteral("received")).toInt();
+  const QString reason = field(QStringLiteral("reason"));
+
+  const auto notify = [this](const QString &text, QSystemTrayIcon::MessageIcon icon) {
+    statusBar()->showMessage(text, 15000);
+    if (m_trayIcon->isVisible() && QSystemTrayIcon::supportsMessages())
+      m_trayIcon->showMessage(kAppName, text, icon, 8000);
+  };
+
+  if (state == QStringLiteral("started")) {
+    statusBar()->showMessage(tr("Receiving files into \"%1\"...").arg(folder));
+  } else if (state == QStringLiteral("done")) {
+    notify(tr("Pasted %n item(s) into \"%1\"", nullptr, received).arg(folder), QSystemTrayIcon::Information);
+  } else if (state == QStringLiteral("failed")) {
+    QString text;
+    if (reason == QStringLiteral("nothing"))
+      text = tr("Nothing to paste: the copied files are no longer available");
+    else if (received > 0)
+      text = tr("Only %n item(s) could be pasted into \"%1\", see the log for details", nullptr, received).arg(folder);
+    else
+      text = tr("Could not paste the files from the other computer, see the log for details");
+    notify(text, QSystemTrayIcon::Warning);
+  }
+}
+
 void MainWindow::checkFileTransfer(const QString &line)
 {
+  checkFilePaste(line);
+
   // Parse structured clipboard metadata log:
   // "CLIPBOARD_META: type=file, items=3, size=12345678, source=MacBook, deferred=true, sessionId=42"
   static const QString kClipboardMetaTag = QStringLiteral("CLIPBOARD_META:");

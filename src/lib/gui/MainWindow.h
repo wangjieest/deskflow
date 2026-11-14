@@ -147,6 +147,7 @@ private:
   void setHelpFilePath();
   void showHelpViewer() const;
   void checkFileTransfer(const QString &line);
+  void checkFilePaste(const QString &line);
   void initDiscoveryService();
   void onPeerDiscovered(const deskflow::gui::discovery::PeerNode &peer);
   void onPeerLost(const QString &nodeId);

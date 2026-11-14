@@ -452,8 +452,12 @@ void ClipboardTransferThread::clearPendingFilesForPaste()
   m_completedFilePaths.clear();
 }
 
-std::vector<std::string> ClipboardTransferThread::requestFilesAndWait(const std::string &destFolder, uint32_t timeoutMs)
+std::vector<std::string>
+ClipboardTransferThread::requestFilesAndWait(const std::string &destFolder, uint32_t timeoutMs, bool *allOk)
 {
+  if (allOk)
+    *allOk = false;
+
   std::vector<ClipboardTransferFileInfo> files;
   std::string sourceAddr;
   uint16_t sourcePort = 0;
@@ -519,6 +523,8 @@ std::vector<std::string> ClipboardTransferThread::requestFilesAndWait(const std:
     );
   }
   const auto paths = state->paths;
+  if (allOk)
+    *allOk = state->allOk;
   lock.unlock();
 
   LOG_INFO("[ClipboardTransfer] transfer complete, %zu item(s) received", paths.size());

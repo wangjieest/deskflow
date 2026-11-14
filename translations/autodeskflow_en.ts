@@ -2,6 +2,23 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="en_US">
 <context>
+    <name>MainWindow</name>
+    <message numerus="yes">
+        <source>Pasted %n item(s) into &quot;%1&quot;</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Only %n item(s) could be pasted into &quot;%1&quot;, see the log for details</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+</context>
+<context>
     <name>StatusBar</name>
     <message numerus="yes">
         <source>%1 is connected, with %n client(s): %2</source>

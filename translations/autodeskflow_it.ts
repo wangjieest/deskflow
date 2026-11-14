@@ -900,6 +900,32 @@ They show up here once they run AutoDeskflow with the same Group Token (Preferen
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Receiving files into &quot;%1&quot;...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Pasted %n item(s) into &quot;%1&quot;</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Nothing to paste: the copied files are no longer available</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Only %n item(s) could be pasted into &quot;%1&quot;, see the log for details</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Could not paste the files from the other computer, see the log for details</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>%1 file(s) from %2 (%3)</source>
         <translation type="unfinished"></translation>
     </message>

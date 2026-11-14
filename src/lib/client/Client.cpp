@@ -101,15 +101,17 @@ Client::Client(
   OSXPasteboardBridge::startListening([this](const std::string &targetDir) {
     LOG_INFO("[FinderPaste] paste request received, target: %s", targetDir.c_str());
 
+    // FILE_PASTE lines are parsed by the GUI to tell the user how the paste went
     if (!m_clipboardTransferThread || !m_clipboardTransferThread->isRunning()) {
-      LOG_WARN("[FinderPaste] clipboard transfer thread not available");
+      LOG_WARN("FILE_PASTE: state=failed, received=0, reason=unavailable, target=%s", targetDir.c_str());
       return;
     }
 
     if (!m_clipboardTransferThread->hasPendingFilesForPaste()) {
-      LOG_WARN("[FinderPaste] no pending files in transfer thread");
+      LOG_WARN("FILE_PASTE: state=failed, received=0, reason=nothing, target=%s", targetDir.c_str());
       return;
     }
+    LOG_INFO("FILE_PASTE: state=started, received=0, target=%s", targetDir.c_str());
 
     LOG_INFO("[FinderPaste] starting async file transfer to: %s", targetDir.c_str());
 
@@ -122,7 +124,13 @@ Client::Client(
     ClipboardTransferThread *transferThread = m_clipboardTransferThread;
     std::thread([transferThread, targetDir]() {
       // No overall deadline: each download ends on its own once the peer goes quiet
-      const auto paths = transferThread->requestFilesAndWait(targetDir, 0);
+      bool allOk = false;
+      const auto paths = transferThread->requestFilesAndWait(targetDir, 0, &allOk);
+      if (allOk) {
+        LOG_INFO("FILE_PASTE: state=done, received=%zu, target=%s", paths.size(), targetDir.c_str());
+      } else {
+        LOG_WARN("FILE_PASTE: state=failed, received=%zu, reason=transfer, target=%s", paths.size(), targetDir.c_str());
+      }
 
       // Only top-level items belong on the pasteboard; nested ones already sit inside their folder
       std::string base = targetDir;
@@ -145,8 +153,6 @@ Client::Client(
           for (const auto &p : topLevel) cPaths.push_back(p.c_str());
           updatePasteboardWithFiles(cPaths.data(), static_cast<int>(cPaths.size()));
         });
-      } else {
-        LOG_ERR("[FinderPaste] file transfer failed or timed out");
       }
     }).detach();
   });
