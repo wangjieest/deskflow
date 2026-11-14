@@ -158,8 +158,8 @@ private:
 
   void handleMessage(const QByteArray &data, const QHostAddress &sender);
   void handleAnnounce(const QStringList &parts, const QHostAddress &sender);
-  void handleMasterClaim(const QStringList &parts);
-  void handleMasterNotify(const QStringList &parts);
+  void handleMasterClaim(const QStringList &parts, const QHostAddress &sender);
+  void handleMasterNotify(const QStringList &parts, const QHostAddress &sender);
   void handleMasterRelease(const QStringList &parts);
 
   QString computeTokenHash(const QString &token) const;

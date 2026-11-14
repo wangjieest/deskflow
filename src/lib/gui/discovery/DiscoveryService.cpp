@@ -13,6 +13,26 @@
 
 namespace deskflow::gui::discovery {
 
+namespace {
+
+// The datagram's source address is one we can reach; the self-reported address may belong to
+// a VPN or virtual adapter on the sender
+QString reachableAddress(const QHostAddress &sender, const QString &advertised)
+{
+  bool ok = false;
+  const quint32 v4 = sender.toIPv4Address(&ok);
+  if (ok && v4 != 0)
+    return QHostAddress(v4).toString();
+  return advertised;
+}
+
+bool isPrivateIPv4(quint32 a)
+{
+  return (a >> 24) == 10 || (a >> 20) == ((172u << 4) | 1u) || (a >> 16) == ((192u << 8) | 168u);
+}
+
+} // namespace
+
 bool PeerNode::isOnline() const
 {
   return QDateTime::currentSecsSinceEpoch() - lastSeen < DiscoveryService::kNodeTimeout;
@@ -227,20 +247,26 @@ void DiscoveryService::onCleanupTimer()
 
 QString DiscoveryService::getLocalIpAddress() const
 {
+  // Prefer a private LAN address on a broadcast-capable adapter; VPN tunnels are point-to-point
+  QString fallback;
   const auto interfaces = QNetworkInterface::allInterfaces();
   for (const auto &iface : interfaces) {
-    if (iface.flags().testFlag(QNetworkInterface::IsUp) &&
-        iface.flags().testFlag(QNetworkInterface::IsRunning) &&
-        !iface.flags().testFlag(QNetworkInterface::IsLoopBack)) {
-      const auto addresses = iface.addressEntries();
-      for (const auto &addr : addresses) {
-        if (addr.ip().protocol() == QAbstractSocket::IPv4Protocol) {
-          return addr.ip().toString();
-        }
-      }
+    const auto flags = iface.flags();
+    if (!flags.testFlag(QNetworkInterface::IsUp) || !flags.testFlag(QNetworkInterface::IsRunning) ||
+        flags.testFlag(QNetworkInterface::IsLoopBack)) {
+      continue;
+    }
+    for (const auto &entry : iface.addressEntries()) {
+      const auto ip = entry.ip();
+      if (ip.protocol() != QAbstractSocket::IPv4Protocol || ip.isLinkLocal())
+        continue;
+      if (!flags.testFlag(QNetworkInterface::IsPointToPoint) && isPrivateIPv4(ip.toIPv4Address()))
+        return ip.toString();
+      if (fallback.isEmpty())
+        fallback = ip.toString();
     }
   }
-  return QStringLiteral("127.0.0.1");
+  return fallback.isEmpty() ? QStringLiteral("127.0.0.1") : fallback;
 }
 
 void DiscoveryService::sendAnnounce()
@@ -365,9 +391,9 @@ void DiscoveryService::handleMessage(const QByteArray &data, const QHostAddress 
   if (type == "ANNOUNCE") {
     handleAnnounce(parts, sender);
   } else if (type == "MASTER_CLAIM") {
-    handleMasterClaim(parts);
+    handleMasterClaim(parts, sender);
   } else if (type == "MASTER_NOTIFY") {
-    handleMasterNotify(parts);
+    handleMasterNotify(parts, sender);
   } else if (type == "MASTER_RELEASE") {
     handleMasterRelease(parts);
   }
@@ -382,7 +408,7 @@ void DiscoveryService::handleAnnounce(const QStringList &parts, const QHostAddre
 
   QString nodeId = parts[4];
   QString nodeName = parts[5];
-  QString ip = parts[6];
+  QString ip = reachableAddress(sender, parts[6]);
   uint16_t port = parts[7].toUShort();
   Role role = stringToRole(parts[8]);
 
@@ -416,7 +442,7 @@ void DiscoveryService::handleAnnounce(const QStringList &parts, const QHostAddre
   }
 }
 
-void DiscoveryService::handleMasterClaim(const QStringList &parts)
+void DiscoveryService::handleMasterClaim(const QStringList &parts, const QHostAddress &sender)
 {
   // DESKFLOW|MASTER_CLAIM|<ver>|<tokenHash>|<nodeId>|<nodeName>|<ip>|<port>|<timestamp>
   if (parts.size() < 9) {
@@ -425,7 +451,7 @@ void DiscoveryService::handleMasterClaim(const QStringList &parts)
 
   QString nodeId = parts[4];
   QString nodeName = parts[5];
-  QString ip = parts[6];
+  QString ip = reachableAddress(sender, parts[6]);
   uint16_t port = parts[7].toUShort();
   qint64 timestamp = parts[8].toLongLong();
 
@@ -495,7 +521,7 @@ void DiscoveryService::handleMasterClaim(const QStringList &parts)
   m_pendingMasterPort = port;
 }
 
-void DiscoveryService::handleMasterNotify(const QStringList &parts)
+void DiscoveryService::handleMasterNotify(const QStringList &parts, const QHostAddress &sender)
 {
   // DESKFLOW|MASTER_NOTIFY|<ver>|<tokenHash>|<nodeId>|<nodeName>|<ip>|<port>
   if (parts.size() < 8) {
@@ -504,7 +530,7 @@ void DiscoveryService::handleMasterNotify(const QStringList &parts)
 
   QString nodeId = parts[4];
   QString nodeName = parts[5];
-  QString ip = parts[6];
+  QString ip = reachableAddress(sender, parts[6]);
   uint16_t port = parts[7].toUShort();
 
   // Ignore our own notify
