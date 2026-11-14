@@ -21,6 +21,7 @@
 #include "platform/OSXClipboardFileConverter.h"
 #endif
 
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <sstream>
@@ -262,7 +263,7 @@ bool ClientProxy1_5::sendFileWithMetadata(
   LOG_INFO("sending file with metadata: %s (requestId=%u, relativePath=%s)", filePath.c_str(), requestId, relativePath.c_str());
 
   // Open file
-  std::ifstream file(filePath, std::ios::binary | std::ios::ate);
+  std::ifstream file(FileTransfer::pathFromUtf8(filePath), std::ios::binary | std::ios::ate);
   if (!file.is_open()) {
     LOG_ERR("failed to open file for transfer: %s", filePath.c_str());
     std::string errorMsg = "File not found";
@@ -479,7 +480,7 @@ void ClientProxy1_5::handleFileChunkFromClient()
       if (lastSlash != std::string::npos) {
         FileTransfer::createDirectoryPath(state.destPath.substr(0, lastSlash));
       }
-      state.data.reserve(static_cast<size_t>(fileSize));
+      state.data.reserve(static_cast<size_t>(std::min<uint64_t>(fileSize, 64ull * 1024 * 1024)));
     }
 
     LOG_INFO(
@@ -490,7 +491,15 @@ void ClientProxy1_5::handleFileChunkFromClient()
   }
 
   case FileChunkType::Data: {
-    // Append data
+    if (state.destPath.empty())
+      break;
+    if (state.fileSize > 0 && state.bytesReceived + data.size() > state.fileSize) {
+      // Drop the file; End then completes the bookkeeping without writing anything
+      LOG_ERR("[FileTransfer] request %u sent more data than announced, dropping it", requestId);
+      state.data.clear();
+      state.destPath.clear();
+      break;
+    }
     state.data.insert(state.data.end(), data.begin(), data.end());
     state.bytesReceived += data.size();
 
@@ -504,7 +513,7 @@ void ClientProxy1_5::handleFileChunkFromClient()
   case FileChunkType::End: {
     if (!state.isDir && !state.destPath.empty()) {
       // Write file to disk
-      std::ofstream file(state.destPath, std::ios::binary);
+      std::ofstream file(FileTransfer::pathFromUtf8(state.destPath), std::ios::binary);
       if (file.is_open()) {
         file.write(reinterpret_cast<const char *>(state.data.data()), state.data.size());
         file.close();

@@ -26,6 +26,9 @@ private Q_SLOTS:
   void moreDataThanAnnouncedFails();
   void plantedSymlinkIsNotFollowed();
   void copyWithoutFileListDropsOnlyFiles();
+  void refusedConnectionFailsFast();
+  void relayTempPathsStayInTempFolder();
+  void appendChunkRefusesMoreThanAnnounced();
   void sourceErrorIsReported();
 
 private:

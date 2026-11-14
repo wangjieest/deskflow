@@ -1290,9 +1290,7 @@ void ServerProxy::fileChunkReceived()
         it->second.relativePath = relativePath;
       }
       it->second.isDir = isDir;
-      if (!isDir) {
-        it->second.data.reserve(static_cast<size_t>(fileSize));
-      }
+      FileTransfer::reserveFor(it->second);
     } else {
       // Create new transfer request (unexpected but handle gracefully)
       FileTransferRequest request;
@@ -1305,9 +1303,7 @@ void ServerProxy::fileChunkReceived()
       request.isComplete = false;
       request.hasError = false;
       request.isDir = isDir;
-      if (!isDir) {
-        request.data.reserve(static_cast<size_t>(fileSize));
-      }
+      FileTransfer::reserveFor(request);
       m_fileTransfers[requestId] = std::move(request);
     }
     break;
@@ -1320,9 +1316,12 @@ void ServerProxy::fileChunkReceived()
       return;
     }
 
-    // Append data
-    it->second.data.insert(it->second.data.end(), data.begin(), data.end());
-    it->second.bytesTransferred += data.size();
+    if (!FileTransfer::appendChunk(it->second, data)) {
+      LOG_ERR("file transfer %u sent more data than announced, dropping it", requestId);
+      LOG_INFO("FILE_TRANSFER_ERROR: id=%u, error=More data than announced", requestId);
+      m_fileTransfers.erase(it);
+      return;
+    }
 
     LOG_VERBOSE(
         "file data chunk: id=%u, chunk=%zu, total=%llu/%llu", requestId, data.size(), it->second.bytesTransferred,
@@ -1391,7 +1390,7 @@ void ServerProxy::fileChunkReceived()
       }
     } else {
       // Save file
-      std::ofstream outFile(tempPath, std::ios::binary);
+      std::ofstream outFile(FileTransfer::pathFromUtf8(tempPath), std::ios::binary);
       if (outFile.is_open()) {
         outFile.write(reinterpret_cast<const char *>(it->second.data.data()), it->second.data.size());
         outFile.close();
@@ -1537,17 +1536,18 @@ void ServerProxy::handleFileTransferPort()
             it->second.fileSize = fileSize;
             it->second.relativePath = relativePath;
             it->second.isDir = isDir;
-            if (!isDir) {
-              it->second.data.reserve(static_cast<size_t>(fileSize));
-            }
+            FileTransfer::reserveFor(it->second);
             LOG_INFO("[FileTransfer] Start chunk received: name=%s, size=%llu", fileName.c_str(), fileSize);
           }
           break;
         }
 
         case FileChunkType::Data: {
-          it->second.data.insert(it->second.data.end(), data.begin(), data.end());
-          it->second.bytesTransferred += data.size();
+          if (!FileTransfer::appendChunk(it->second, data)) {
+            LOG_ERR("[FileTransfer] request %u sent more data than announced, dropping it", requestId);
+            m_fileTransfers.erase(it);
+            break;
+          }
           LOG_VERBOSE("[FileTransfer] Data chunk: %zu bytes, total=%llu/%llu",
                      data.size(), it->second.bytesTransferred, it->second.fileSize);
           break;
@@ -1557,7 +1557,7 @@ void ServerProxy::handleFileTransferPort()
           LOG_INFO("[FileTransfer] End chunk received, saving file");
           // Save file (reuse logic from fileChunkReceived)
           std::string tempPath = FileTransfer::createTempFilePath(it->second.fileName);
-          std::ofstream outFile(tempPath, std::ios::binary);
+          std::ofstream outFile(FileTransfer::pathFromUtf8(tempPath), std::ios::binary);
           if (outFile.is_open()) {
             outFile.write(reinterpret_cast<const char*>(it->second.data.data()), it->second.data.size());
             outFile.close();
@@ -1641,7 +1641,7 @@ void ServerProxy::handleServerFileRequest()
   LOG_INFO("[FileTransfer] server requesting file: %s (isDir=%d)", filePath.c_str(), isDir);
 
   // Check if file exists
-  std::ifstream file(filePath, std::ios::binary | std::ios::ate);
+  std::ifstream file(FileTransfer::pathFromUtf8(filePath), std::ios::binary | std::ios::ate);
   if (!file.is_open()) {
     LOG_ERR("[FileTransfer] file not found: %s", filePath.c_str());
     sendFileChunkToServer(requestId, static_cast<uint8_t>(FileChunkType::Error), "file not found");
@@ -1723,17 +1723,18 @@ void ServerProxy::handleFileChunkFromP2P(uint32_t requestId, FileChunkType type,
         it->second.fileSize = fileSize;
         it->second.relativePath = relativePath;
         it->second.isDir = isDir;
-        if (!isDir) {
-          it->second.data.reserve(static_cast<size_t>(fileSize));
-        }
+        FileTransfer::reserveFor(it->second);
         LOG_INFO("[FileTransfer] P2P start chunk: name=%s, size=%llu", fileName.c_str(), fileSize);
       }
       break;
     }
 
     case FileChunkType::Data: {
-      it->second.data.insert(it->second.data.end(), data.begin(), data.end());
-      it->second.bytesTransferred += data.size();
+      if (!FileTransfer::appendChunk(it->second, data)) {
+        LOG_ERR("[FileTransfer] P2P request %u sent more data than announced, dropping it", requestId);
+        m_fileTransfers.erase(it);
+        return;
+      }
       LOG_VERBOSE("[FileTransfer] P2P data chunk: %zu bytes, total=%llu/%llu", data.size(), it->second.bytesTransferred, it->second.fileSize);
       break;
     }
@@ -1741,7 +1742,7 @@ void ServerProxy::handleFileChunkFromP2P(uint32_t requestId, FileChunkType type,
     case FileChunkType::End: {
       LOG_INFO("[FileTransfer] P2P end chunk received, saving file");
       std::string tempPath = FileTransfer::createTempFilePath(it->second.fileName);
-      std::ofstream outFile(tempPath, std::ios::binary);
+      std::ofstream outFile(FileTransfer::pathFromUtf8(tempPath), std::ios::binary);
       if (outFile.is_open()) {
         outFile.write(reinterpret_cast<const char *>(it->second.data.data()), it->second.data.size());
         outFile.close();

@@ -64,7 +64,7 @@ void ClipboardTransferWorker::run()
 
     // Create server and client
     m_server = std::make_unique<ClipboardTransferServer>(m_events.get(), m_socketMultiplexer.get(), m_socketFactory.get());
-    m_client = std::make_unique<ClipboardTransferClient>(m_events.get(), m_socketMultiplexer.get());
+    m_client = std::make_unique<ClipboardTransferClient>();
 
     // Start the server
     if (!m_server->start()) {

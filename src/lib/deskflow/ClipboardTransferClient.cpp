@@ -6,16 +6,7 @@
 
 #include "deskflow/ClipboardTransferClient.h"
 
-#include "arch/Arch.h"
-#include "base/IEventQueue.h"
 #include "base/Log.h"
-#include "deskflow/ProtocolTypes.h"
-#include "deskflow/ProtocolUtil.h"
-#include "net/IDataSocket.h"
-#include "net/NetworkAddress.h"
-#include "net/SocketException.h"
-#include "net/SocketMultiplexer.h"
-#include "net/TCPSocket.h"
 
 #include <QByteArray>
 #include <QJsonDocument>
@@ -23,54 +14,40 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cstdlib>
+#include <chrono>
 #include <cstring>
-#include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
 #include <thread>
 #include <vector>
 
 #ifdef _WIN32
-#include <direct.h>
-#include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#define mkdir(dir, mode) _mkdir(dir)
 #else
 #include <arpa/inet.h>
+#include <cerrno>
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
 #include <unistd.h>
 #define closesocket close
 #define INVALID_SOCKET (-1)
-#define SOCKET_ERROR   (-1)
 typedef int SOCKET;
 #endif
-
-ClipboardTransferClient::ClipboardTransferClient(IEventQueue *events, SocketMultiplexer *socketMultiplexer)
-    : m_events(events),
-      m_socketMultiplexer(socketMultiplexer)
-{
-  LOG_DEBUG("[ClipboardTransferClient] created");
-
-  // Initialize random seed for request IDs
-  std::srand(static_cast<unsigned>(std::time(nullptr)));
-  m_nextRequestId = static_cast<uint32_t>(std::rand()) & 0xFFFF;
-}
-
-ClipboardTransferClient::~ClipboardTransferClient()
-{
-  closeAll();
-}
 
 namespace {
 
 constexpr size_t kChunkHeaderSize = 13; // "DFCH" + requestId(4) + type(1) + dataLen(4)
 constexpr uint32_t kMaxChunkPayload = 64 * 1024 * 1024;
+constexpr int kConnectTimeoutMs = 10000;
+
+// A legitimate LAN transfer is far faster; this only stops a source that trickles data to hold us open
+constexpr auto kTransferGrace = std::chrono::seconds(60);
+constexpr uint64_t kMinBytesPerSecond = 256 * 1024;
+constexpr auto kUnknownSizeAllowance = std::chrono::hours(1);
 
 std::atomic<uint32_t> s_nextDownloadId{1};
 
@@ -100,42 +77,61 @@ bool sendAll(SOCKET fd, const void *buf, size_t n)
   return true;
 }
 
+bool setNonBlocking(SOCKET fd, bool enable)
+{
+#ifdef _WIN32
+  u_long mode = enable ? 1 : 0;
+  return ioctlsocket(fd, FIONBIO, &mode) == 0;
+#else
+  const int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0)
+    return false;
+  return fcntl(fd, F_SETFL, enable ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK)) == 0;
+#endif
+}
+
+// A plain connect() to an unreachable peer blocks for the OS default, which can exceed a minute
+bool connectWithTimeout(SOCKET fd, const sockaddr *addr, socklen_t addrLen, int timeoutMs)
+{
+  if (!setNonBlocking(fd, true))
+    return connect(fd, addr, addrLen) == 0;
+
+  bool ok = connect(fd, addr, addrLen) == 0;
+  if (!ok) {
+#ifdef _WIN32
+    const bool pending = WSAGetLastError() == WSAEWOULDBLOCK;
+#else
+    const bool pending = errno == EINPROGRESS;
+#endif
+    if (pending) {
+#ifdef _WIN32
+      // Windows reports a failed connect through the exception set rather than the write set
+      fd_set writable;
+      fd_set failed;
+      FD_ZERO(&writable);
+      FD_ZERO(&failed);
+      FD_SET(fd, &writable);
+      FD_SET(fd, &failed);
+      timeval tv{timeoutMs / 1000, (timeoutMs % 1000) * 1000};
+      const bool ready = select(0, nullptr, &writable, &failed, &tv) > 0 && FD_ISSET(fd, &writable);
+#else
+      pollfd pfd{fd, POLLOUT, 0};
+      const bool ready = poll(&pfd, 1, timeoutMs) > 0 && (pfd.revents & POLLOUT);
+#endif
+      if (ready) {
+        int error = 0;
+        socklen_t errorLen = sizeof(error);
+        ok = getsockopt(fd, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&error), &errorLen) == 0 && error == 0;
+      }
+    }
+  }
+  setNonBlocking(fd, false);
+  return ok;
+}
+
 uint32_t readBE32(const uint8_t *p)
 {
   return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | uint32_t(p[3]);
-}
-
-std::filesystem::path pathFromUtf8(const std::string &s)
-{
-  return std::filesystem::path(std::u8string(s.begin(), s.end()));
-}
-
-std::string pathToUtf8(const std::filesystem::path &p)
-{
-  const auto u8 = p.u8string();
-  return std::string(u8.begin(), u8.end());
-}
-
-// The path comes from the peer, so anything that could escape the destination folder is rejected
-std::string sanitizeRelativePath(const std::string &path)
-{
-  std::string result;
-  size_t start = 0;
-  while (start <= path.size()) {
-    size_t end = path.find_first_of("/\\", start);
-    if (end == std::string::npos)
-      end = path.size();
-    const auto part = path.substr(start, end - start);
-    if (part == ".." || part.find(':') != std::string::npos)
-      return {};
-    if (!part.empty() && part != ".") {
-      if (!result.empty())
-        result += '/';
-      result += part;
-    }
-    start = end + 1;
-  }
-  return result;
 }
 
 std::string baseName(const std::string &path)
@@ -212,6 +208,7 @@ ClipboardTransferClient::DownloadResult ClipboardTransferClient::downloadFile(
 )
 {
   namespace fs = std::filesystem;
+  using Clock = std::chrono::steady_clock;
 
   DownloadResult result;
   if (destDir.empty()) {
@@ -249,7 +246,8 @@ ClipboardTransferClient::DownloadResult ClipboardTransferClient::downloadFile(
   setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
   setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 #endif
-  const bool connected = connect(fd, res->ai_addr, static_cast<socklen_t>(res->ai_addrlen)) == 0;
+  const bool connected =
+      connectWithTimeout(fd, res->ai_addr, static_cast<socklen_t>(res->ai_addrlen), kConnectTimeoutMs);
   freeaddrinfo(res);
   if (!connected) {
     closesocket(fd);
@@ -281,6 +279,7 @@ ClipboardTransferClient::DownloadResult ClipboardTransferClient::downloadFile(
   bool limitToAnnounced = false;
   uint64_t announcedSize = 0;
   uint64_t written = 0;
+  auto deadline = Clock::now() + kTransferGrace;
   std::vector<uint8_t> packet;
 
   const auto fail = [&](const std::string &error) {
@@ -294,6 +293,11 @@ ClipboardTransferClient::DownloadResult ClipboardTransferClient::downloadFile(
 
   // Each chunk is "DFCH" + requestId + type + dataLen + payload, optionally preceded by a 4-byte length
   while (true) {
+    if (Clock::now() > deadline) {
+      fail("source is too slow");
+      break;
+    }
+
     uint8_t first4[4];
     if (!recvAll(fd, first4, sizeof(first4))) {
       fail("connection lost");
@@ -354,9 +358,9 @@ ClipboardTransferClient::DownloadResult ClipboardTransferClient::downloadFile(
       }
       started = true;
       const auto info = parseStartPayload(data, dataLen);
-      auto relativePath = sanitizeRelativePath(info.relativePath);
+      auto relativePath = FileTransfer::sanitizeRelativePath(info.relativePath);
       if (relativePath.empty())
-        relativePath = sanitizeRelativePath(baseName(remotePath));
+        relativePath = FileTransfer::sanitizeRelativePath(baseName(remotePath));
       if (relativePath.empty()) {
         fail("invalid file name");
         break;
@@ -364,12 +368,17 @@ ClipboardTransferClient::DownloadResult ClipboardTransferClient::downloadFile(
       isDir = info.isDir;
       limitToAnnounced = info.hasSize;
       announcedSize = info.size;
-      finalPath = pathFromUtf8(destDir) / pathFromUtf8(relativePath);
+      deadline = Clock::now() + kTransferGrace +
+                 (info.hasSize ? std::chrono::duration_cast<Clock::duration>(
+                                     std::chrono::seconds(announcedSize / kMinBytesPerSecond)
+                                 )
+                               : std::chrono::duration_cast<Clock::duration>(kUnknownSizeAllowance));
+      finalPath = FileTransfer::pathFromUtf8(destDir) / FileTransfer::pathFromUtf8(relativePath);
       std::error_code ec;
       if (isDir) {
         fs::create_directories(finalPath, ec);
         if (ec) {
-          fail("cannot create folder " + pathToUtf8(finalPath));
+          fail("cannot create folder " + FileTransfer::pathToUtf8(finalPath));
           break;
         }
         continue;
@@ -383,7 +392,7 @@ ClipboardTransferClient::DownloadResult ClipboardTransferClient::downloadFile(
       fs::remove(tempPath, ec);
       out.open(tempPath, std::ios::binary | std::ios::trunc);
       if (!out) {
-        fail("cannot write " + pathToUtf8(tempPath));
+        fail("cannot write " + FileTransfer::pathToUtf8(tempPath));
         break;
       }
       continue;
@@ -401,7 +410,7 @@ ClipboardTransferClient::DownloadResult ClipboardTransferClient::downloadFile(
       }
       out.write(reinterpret_cast<const char *>(data), dataLen);
       if (!out) {
-        fail("cannot write " + pathToUtf8(tempPath));
+        fail("cannot write " + FileTransfer::pathToUtf8(tempPath));
         break;
       }
       continue;
@@ -415,19 +424,19 @@ ClipboardTransferClient::DownloadResult ClipboardTransferClient::downloadFile(
       if (!isDir) {
         out.close();
         if (!out) {
-          fail("cannot write " + pathToUtf8(tempPath));
+          fail("cannot write " + FileTransfer::pathToUtf8(tempPath));
           break;
         }
         std::error_code ec;
         fs::rename(tempPath, finalPath, ec);
         if (ec) {
-          fail("cannot rename to " + pathToUtf8(finalPath));
+          fail("cannot rename to " + FileTransfer::pathToUtf8(finalPath));
           break;
         }
         tempPath.clear();
       }
       result.success = true;
-      result.localPath = pathToUtf8(finalPath);
+      result.localPath = FileTransfer::pathToUtf8(finalPath);
       break;
     }
   }
@@ -441,427 +450,14 @@ ClipboardTransferClient::DownloadResult ClipboardTransferClient::downloadFile(
   return result;
 }
 
-void ClipboardTransferClient::closeAll()
-{
-  LOG_DEBUG("[ClipboardTransferClient] closing all connections");
-
-  for (auto &pair : m_connections) {
-    Connection *conn = pair.second.get();
-
-    // Cancel pending requests
-    for (auto &reqPair : conn->pendingRequests) {
-      if (reqPair.second.file) {
-        reqPair.second.file->close();
-        delete reqPair.second.file;
-      }
-      if (reqPair.second.callback) {
-        reqPair.second.callback(false, "", "Connection closed");
-      }
-    }
-
-    // Remove handlers and close
-    if (conn->socket) {
-      m_events->removeHandler(EventTypes::StreamInputReady, conn->socket);
-      m_events->removeHandler(EventTypes::SocketDisconnected, conn->socket);
-      delete conn->stream;
-      delete conn->socket;
-    }
-  }
-
-  m_connections.clear();
-}
-
-void ClipboardTransferClient::setDestinationFolder(const std::string &folder)
-{
-  m_destFolder = folder;
-  // Reset cached temp dir so getTempDirectory() picks up the new folder
-  m_tempDir.clear();
-
-  if (!folder.empty()) {
-    LOG_INFO("[ClipboardTransferClient] destination folder set: %s", folder.c_str());
-  } else {
-    LOG_DEBUG("[ClipboardTransferClient] destination folder cleared, using temp");
-  }
-}
-
 std::string ClipboardTransferClient::getTempDirectory() const
 {
-  // Use explicit destination folder if set
-  if (!m_destFolder.empty()) {
-    std::string dir = m_destFolder;
-    if (dir.back() != '/' && dir.back() != '\\') {
-      dir += '/';
-    }
-    mkdir(dir.c_str(), 0755);
-    return dir;
-  }
-
-  if (!m_tempDir.empty()) {
-    return m_tempDir;
-  }
-
-#ifdef _WIN32
-  char tempPath[MAX_PATH];
-  if (GetTempPathA(MAX_PATH, tempPath) > 0) {
-    m_tempDir = std::string(tempPath) + "deskflow_transfer\\";
-  } else {
-    m_tempDir = "C:\\Temp\\deskflow_transfer\\";
-  }
-#else
-  const char *tmpdir = std::getenv("TMPDIR");
-  if (!tmpdir) {
-    tmpdir = "/tmp";
-  }
-  m_tempDir = std::string(tmpdir) + "/deskflow_transfer/";
-#endif
-
-  // Create directory if it doesn't exist
-  mkdir(m_tempDir.c_str(), 0755);
-
-  LOG_DEBUG("[ClipboardTransferClient] temp directory: %s", m_tempDir.c_str());
-  return m_tempDir;
-}
-
-ClipboardTransferClient::Connection *ClipboardTransferClient::getConnection(
-    const std::string &addr, uint16_t port, uint64_t sessionId
-)
-{
-  std::string key = addr + ":" + std::to_string(port);
-
-  auto it = m_connections.find(key);
-  if (it != m_connections.end() && it->second->socket) {
-    // Existing connection
-    LOG_DEBUG("[ClipboardTransferClient] reusing connection to %s", key.c_str());
-    return it->second.get();
-  }
-
-  // Create new connection
-  LOG_INFO("[ClipboardTransferClient] connecting to %s:%u", addr.c_str(), port);
-
-  try {
-    NetworkAddress netAddr(addr, port);
-    netAddr.resolve();
-
-    auto socket = new TCPSocket(m_events, m_socketMultiplexer, ARCH->getAddrFamily(netAddr.getAddress()));
-    socket->connect(netAddr);
-
-    // Register handlers
-    m_events->addHandler(EventTypes::StreamInputReady, socket, [this, socket](const auto &) {
-      handleDataReady(socket);
-    });
-
-    m_events->addHandler(EventTypes::SocketDisconnected, socket, [this, socket](const auto &) {
-      handleDisconnected(socket);
-    });
-
-    // Create connection object
-    auto conn = std::make_unique<Connection>();
-    conn->socket = socket;
-    conn->stream = socket; // Use socket directly (no PacketStreamFilter for reading)
-    conn->address = addr;
-    conn->port = port;
-    conn->sessionId = sessionId;
-
-    Connection *result = conn.get();
-    m_connections[key] = std::move(conn);
-
-    LOG_INFO("[ClipboardTransferClient] connected to %s", key.c_str());
-    return result;
-
-  } catch (const std::exception &e) {
-    LOG_ERR("[ClipboardTransferClient] connection failed: %s", e.what());
-    return nullptr;
-  }
-}
-
-bool ClipboardTransferClient::sendFileRequest(Connection *conn, uint32_t requestId, const std::string &filePath)
-{
-  if (!conn || !conn->socket) {
-    return false;
-  }
-
-  // Build P2P request: "P2P " (4) + sessionId (8) + requestId (4) + pathLen (4) + path
-  std::string request = "P2P ";
-
-  // Session ID (8 bytes, big-endian)
-  uint64_t sessionId = conn->sessionId;
-  request.push_back(static_cast<char>((sessionId >> 56) & 0xFF));
-  request.push_back(static_cast<char>((sessionId >> 48) & 0xFF));
-  request.push_back(static_cast<char>((sessionId >> 40) & 0xFF));
-  request.push_back(static_cast<char>((sessionId >> 32) & 0xFF));
-  request.push_back(static_cast<char>((sessionId >> 24) & 0xFF));
-  request.push_back(static_cast<char>((sessionId >> 16) & 0xFF));
-  request.push_back(static_cast<char>((sessionId >> 8) & 0xFF));
-  request.push_back(static_cast<char>(sessionId & 0xFF));
-
-  // Request ID (4 bytes, big-endian)
-  request.push_back(static_cast<char>((requestId >> 24) & 0xFF));
-  request.push_back(static_cast<char>((requestId >> 16) & 0xFF));
-  request.push_back(static_cast<char>((requestId >> 8) & 0xFF));
-  request.push_back(static_cast<char>(requestId & 0xFF));
-
-  // Path length (4 bytes, big-endian)
-  uint32_t pathLen = static_cast<uint32_t>(filePath.size());
-  request.push_back(static_cast<char>((pathLen >> 24) & 0xFF));
-  request.push_back(static_cast<char>((pathLen >> 16) & 0xFF));
-  request.push_back(static_cast<char>((pathLen >> 8) & 0xFF));
-  request.push_back(static_cast<char>(pathLen & 0xFF));
-
-  // Path
-  request.append(filePath);
-
-  try {
-    conn->socket->write(request.data(), static_cast<uint32_t>(request.size()));
-    LOG_DEBUG(
-        "[ClipboardTransferClient] sent request: id=%u, session=%llu, path=%s", requestId, sessionId, filePath.c_str()
-    );
-    return true;
-  } catch (const std::exception &e) {
-    LOG_ERR("[ClipboardTransferClient] failed to send request: %s", e.what());
-    return false;
-  }
-}
-
-void ClipboardTransferClient::handleDataReady(IDataSocket *socket)
-{
-  // Find connection
-  Connection *conn = nullptr;
-  for (auto &pair : m_connections) {
-    if (pair.second->socket == socket) {
-      conn = pair.second.get();
-      break;
-    }
-  }
-
-  if (!conn) {
-    return;
-  }
-
-  // Read response using ProtocolUtil (server sends in kMsgDFileChunk format)
-  try {
-    uint32_t requestId;
-    uint8_t chunkType;
-    std::string data;
-
-    // kMsgDFileChunk = "DFCH%4i%1i%s" - readf must consume the "DFCH" header too
-    if (!ProtocolUtil::readf(conn->stream, kMsgDFileChunk, &requestId, &chunkType, &data)) {
-      LOG_DEBUG("[ClipboardTransferClient] waiting for more data");
-      return;
-    }
-
-    LOG_DEBUG("[ClipboardTransferClient] received chunk: request=%u, type=%u, size=%zu", requestId, chunkType, data.size());
-
-    processChunk(conn, requestId, static_cast<FileChunkType>(chunkType), data);
-
-  } catch (const std::exception &e) {
-    LOG_ERR("[ClipboardTransferClient] error reading response: %s", e.what());
-  }
-}
-
-void ClipboardTransferClient::handleDisconnected(IDataSocket *socket)
-{
-  LOG_INFO("[ClipboardTransferClient] connection disconnected");
-
-  // Find and remove connection
-  for (auto it = m_connections.begin(); it != m_connections.end(); ++it) {
-    if (it->second->socket == socket) {
-      Connection *conn = it->second.get();
-
-      // Fail pending requests
-      for (auto &reqPair : conn->pendingRequests) {
-        if (reqPair.second.file) {
-          reqPair.second.file->close();
-          delete reqPair.second.file;
-        }
-        if (reqPair.second.callback) {
-          reqPair.second.callback(false, "", "Connection lost");
-        }
-      }
-
-      m_events->removeHandler(EventTypes::StreamInputReady, socket);
-      m_events->removeHandler(EventTypes::SocketDisconnected, socket);
-      delete socket;
-
-      m_connections.erase(it);
-      break;
-    }
-  }
-}
-
-void ClipboardTransferClient::processChunk(
-    Connection *conn, uint32_t requestId, FileChunkType chunkType, const std::string &data
-)
-{
-  auto it = conn->pendingRequests.find(requestId);
-  if (it == conn->pendingRequests.end()) {
-    LOG_WARN("[ClipboardTransferClient] received chunk for unknown request %u", requestId);
-    return;
-  }
-
-  PendingRequest &req = it->second;
-
-  switch (chunkType) {
-  case FileChunkType::Start: {
-    // Parse start chunk to get file info
-    // Format: requestId(4) + nameLen(4) + name + relPathLen(4) + relPath + size(8) + isDir(1)
-    if (data.size() < 4) {
-      completeRequest(conn, requestId, false, "Invalid start chunk");
-      return;
-    }
-
-    size_t pos = 4; // Skip requestId in data
-
-    // Name length and name
-    if (pos + 4 > data.size()) {
-      completeRequest(conn, requestId, false, "Invalid start chunk");
-      return;
-    }
-    uint32_t nameLen = (static_cast<uint8_t>(data[pos]) << 24) | (static_cast<uint8_t>(data[pos + 1]) << 16) |
-                       (static_cast<uint8_t>(data[pos + 2]) << 8) | static_cast<uint8_t>(data[pos + 3]);
-    pos += 4;
-
-    if (pos + nameLen > data.size()) {
-      completeRequest(conn, requestId, false, "Invalid start chunk");
-      return;
-    }
-    std::string fileName(data.data() + pos, nameLen);
-    pos += nameLen;
-
-    // Relative path length and path
-    if (pos + 4 > data.size()) {
-      completeRequest(conn, requestId, false, "Invalid start chunk");
-      return;
-    }
-    uint32_t relPathLen = (static_cast<uint8_t>(data[pos]) << 24) | (static_cast<uint8_t>(data[pos + 1]) << 16) |
-                          (static_cast<uint8_t>(data[pos + 2]) << 8) | static_cast<uint8_t>(data[pos + 3]);
-    pos += 4;
-
-    if (pos + relPathLen > data.size()) {
-      completeRequest(conn, requestId, false, "Invalid start chunk");
-      return;
-    }
-    req.relativePath = std::string(data.data() + pos, relPathLen);
-    pos += relPathLen;
-
-    // Size (8 bytes)
-    if (pos + 8 > data.size()) {
-      completeRequest(conn, requestId, false, "Invalid start chunk");
-      return;
-    }
-    req.expectedSize = (static_cast<uint64_t>(static_cast<uint8_t>(data[pos])) << 56) |
-                       (static_cast<uint64_t>(static_cast<uint8_t>(data[pos + 1])) << 48) |
-                       (static_cast<uint64_t>(static_cast<uint8_t>(data[pos + 2])) << 40) |
-                       (static_cast<uint64_t>(static_cast<uint8_t>(data[pos + 3])) << 32) |
-                       (static_cast<uint64_t>(static_cast<uint8_t>(data[pos + 4])) << 24) |
-                       (static_cast<uint64_t>(static_cast<uint8_t>(data[pos + 5])) << 16) |
-                       (static_cast<uint64_t>(static_cast<uint8_t>(data[pos + 6])) << 8) |
-                       static_cast<uint64_t>(static_cast<uint8_t>(data[pos + 7]));
-    pos += 8;
-
-    // Is directory (1 byte)
-    if (pos + 1 > data.size()) {
-      completeRequest(conn, requestId, false, "Invalid start chunk");
-      return;
-    }
-    req.isDir = (data[pos] != 0);
-
-    LOG_INFO(
-        "[ClipboardTransferClient] start: name=%s, relPath=%s, size=%llu, isDir=%d", fileName.c_str(),
-        req.relativePath.c_str(), req.expectedSize, req.isDir
-    );
-
-    // Create local path
-    req.localPath = createLocalPath(req.relativePath.empty() ? fileName : req.relativePath);
-
-    if (req.isDir) {
-      // Create directory
-      mkdir(req.localPath.c_str(), 0755);
-    } else {
-      // Open file for writing
-      req.file = new std::ofstream(req.localPath, std::ios::binary);
-      if (!req.file->is_open()) {
-        LOG_ERR("[ClipboardTransferClient] failed to create file: %s", req.localPath.c_str());
-        delete req.file;
-        req.file = nullptr;
-        completeRequest(conn, requestId, false, "Failed to create local file");
-        return;
-      }
-    }
-
-    req.receivedSize = 0;
-    break;
-  }
-
-  case FileChunkType::Data: {
-    if (req.file && req.file->is_open()) {
-      req.file->write(data.data(), data.size());
-      req.receivedSize += data.size();
-      LOG_DEBUG("[ClipboardTransferClient] data: %zu bytes (total: %llu/%llu)", data.size(), req.receivedSize, req.expectedSize);
-    }
-    break;
-  }
-
-  case FileChunkType::End: {
-    LOG_INFO("[ClipboardTransferClient] end: %s (%llu bytes)", req.localPath.c_str(), req.receivedSize);
-    completeRequest(conn, requestId, true);
-    break;
-  }
-
-  case FileChunkType::Error: {
-    LOG_ERR("[ClipboardTransferClient] error from server: %s", data.c_str());
-    completeRequest(conn, requestId, false, data);
-    break;
-  }
-  }
-}
-
-void ClipboardTransferClient::completeRequest(Connection *conn, uint32_t requestId, bool success, const std::string &error)
-{
-  auto it = conn->pendingRequests.find(requestId);
-  if (it == conn->pendingRequests.end()) {
-    return;
-  }
-
-  PendingRequest &req = it->second;
-
-  // Close file if open
-  if (req.file) {
-    req.file->close();
-    delete req.file;
-    req.file = nullptr;
-  }
-
-  // Call callback
-  if (req.callback) {
-    if (success) {
-      req.callback(true, req.localPath, "");
-    } else {
-      req.callback(false, "", error.empty() ? "Unknown error" : error);
-    }
-  }
-
-  // Remove request
-  conn->pendingRequests.erase(it);
-}
-
-uint32_t ClipboardTransferClient::generateRequestId()
-{
-  return m_nextRequestId++;
-}
-
-std::string ClipboardTransferClient::createLocalPath(const std::string &relativePath)
-{
-  std::string basePath = getTempDirectory();
-
-  // Handle subdirectories in relative path
-  std::string fullPath = basePath + relativePath;
-
-  // Create parent directories if needed
-  size_t pos = 0;
-  while ((pos = fullPath.find_first_of("/\\", pos + 1)) != std::string::npos) {
-    std::string dir = fullPath.substr(0, pos);
-    mkdir(dir.c_str(), 0755);
-  }
-
-  return fullPath;
+  // temp_directory_path() is Unicode-aware on Windows, unlike GetTempPathA
+  std::error_code ec;
+  auto dir = std::filesystem::temp_directory_path(ec);
+  if (ec)
+    dir = std::filesystem::current_path(ec);
+  dir /= "deskflow_transfer";
+  std::filesystem::create_directories(dir, ec);
+  return FileTransfer::pathToUtf8(dir);
 }

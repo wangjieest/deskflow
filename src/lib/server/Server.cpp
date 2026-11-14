@@ -2707,17 +2707,18 @@ void Server::handleP2PFileChunk(uint32_t requestId, FileChunkType type, const st
         it->second.fileSize = fileSize;
         it->second.relativePath = relativePath;
         it->second.isDir = isDir;
-        if (!isDir) {
-          it->second.data.reserve(static_cast<size_t>(fileSize));
-        }
+        FileTransfer::reserveFor(it->second);
         LOG_INFO("[Server] P2P start chunk: name=%s, size=%llu", fileName.c_str(), fileSize);
       }
       break;
     }
 
     case FileChunkType::Data: {
-      it->second.data.insert(it->second.data.end(), data.begin(), data.end());
-      it->second.bytesTransferred += data.size();
+      if (!FileTransfer::appendChunk(it->second, data)) {
+        LOG_ERR("[Server] P2P request %u sent more data than announced, dropping it", requestId);
+        m_p2pFileTransfers.erase(it);
+        return;
+      }
       LOG_VERBOSE(
           "[Server] P2P data chunk: %zu bytes, total=%llu/%llu", data.size(), it->second.bytesTransferred,
           it->second.fileSize
@@ -2728,7 +2729,7 @@ void Server::handleP2PFileChunk(uint32_t requestId, FileChunkType type, const st
     case FileChunkType::End: {
       LOG_INFO("[Server] P2P end chunk, saving file");
       std::string tempPath = FileTransfer::createTempFilePath(it->second.fileName);
-      std::ofstream outFile(tempPath, std::ios::binary);
+      std::ofstream outFile(FileTransfer::pathFromUtf8(tempPath), std::ios::binary);
       if (outFile.is_open()) {
         outFile.write(reinterpret_cast<const char *>(it->second.data.data()), it->second.data.size());
         outFile.close();

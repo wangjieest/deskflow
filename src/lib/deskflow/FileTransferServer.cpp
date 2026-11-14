@@ -440,7 +440,7 @@ bool FileTransferServer::sendFile(
   LOG_INFO("[FileTransferServer] sending file: %s (requestId=%u)", filePath.c_str(), requestId);
 
   // Open file
-  std::ifstream file(filePath, std::ios::binary | std::ios::ate);
+  std::ifstream file(FileTransfer::pathFromUtf8(filePath), std::ios::binary | std::ios::ate);
   if (!file.is_open()) {
     LOG_ERR("[FileTransferServer] failed to open file: %s", filePath.c_str());
     sendError(stream, requestId, "File not found");

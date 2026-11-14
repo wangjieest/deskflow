@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <string>
@@ -58,6 +59,19 @@ class FileTransfer
 public:
   FileTransfer() = default;
   ~FileTransfer() = default;
+
+  //! Paths travel as UTF-8; narrow paths mean the ANSI code page on Windows, so file access goes through these
+  static std::filesystem::path pathFromUtf8(const std::string &path);
+  static std::string pathToUtf8(const std::filesystem::path &path);
+
+  //! A peer-supplied relative path reduced to plain components; empty if it tries to leave its folder
+  static std::string sanitizeRelativePath(const std::string &path);
+
+  //! Reserve no more than a sane amount, whatever size the peer announced
+  static void reserveFor(FileTransferRequest &request);
+
+  //! Append a chunk unless that would exceed the announced size
+  static bool appendChunk(FileTransferRequest &request, const std::string &chunk);
 
   static uint32_t generateRequestId();
   static std::string createFileRequest(uint32_t requestId, const std::string &filePath);

@@ -409,9 +409,7 @@ bool ClipboardTransferServer::sendFile(
 {
   LOG_INFO("[ClipboardTransferServer] sending file: %s (requestId=%u)", filePath.c_str(), requestId);
 
-  // Paths are UTF-8; a narrow-char path would be read in the ANSI code page on Windows
-  const std::filesystem::path nativePath(std::u8string(filePath.begin(), filePath.end()));
-  std::ifstream file(nativePath, std::ios::binary | std::ios::ate);
+  std::ifstream file(FileTransfer::pathFromUtf8(filePath), std::ios::binary | std::ios::ate);
   if (!file.is_open()) {
     LOG_ERR("[ClipboardTransferServer] failed to open file: %s", filePath.c_str());
     sendError(stream, requestId, "File not found");

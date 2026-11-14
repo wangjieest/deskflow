@@ -12,11 +12,13 @@
 #include "deskflow/FileTransfer.h"
 
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QTcpServer>
 #include <QTcpSocket>
 
 #include <future>
+#include <limits>
 
 namespace {
 
@@ -257,6 +259,59 @@ void ClipboardTransferClientTests::copyWithoutFileListDropsOnlyFiles()
   QCOMPARE(QString::fromStdString(dst.get(IClipboard::Format::Text)), QStringLiteral("note"));
   QVERIFY(!dst.has(IClipboard::Format::FileList));
   dst.close();
+}
+
+void ClipboardTransferClientTests::refusedConnectionFailsFast()
+{
+  quint16 closedPort = 0;
+  {
+    QTcpServer probe;
+    QVERIFY(probe.listen(QHostAddress::LocalHost, 0));
+    closedPort = probe.serverPort();
+  }
+
+  QElapsedTimer timer;
+  timer.start();
+  const auto result =
+      ClipboardTransferClient::downloadFile("127.0.0.1", closedPort, 42, "/src/a.txt", m_dir->path().toStdString(), false);
+
+  QVERIFY(!result.success);
+  QVERIFY2(result.error.rfind("cannot connect", 0) == 0, result.error.c_str());
+  QVERIFY2(timer.elapsed() < 5000, qPrintable(QString::number(timer.elapsed())));
+}
+
+void ClipboardTransferClientTests::relayTempPathsStayInTempFolder()
+{
+  const auto root = FileTransfer::pathFromUtf8(FileTransfer::getTempDirectory()).lexically_normal();
+  const auto inside = [&root](const std::string &path) {
+    const auto rel = FileTransfer::pathFromUtf8(path).lexically_normal().lexically_relative(root);
+    return !rel.empty() && *rel.begin() != "..";
+  };
+
+  QVERIFY(inside(FileTransfer::createTempFilePath("../../escape.txt")));
+  QVERIFY(inside(FileTransfer::createTempFilePath("..")));
+  QVERIFY(inside(FileTransfer::createTempFilePathWithRelative("folder/../../../escape.txt", 7)));
+  QVERIFY(inside(FileTransfer::createTempFilePathWithRelative("C:\\Windows\\evil.txt", 7)));
+  QCOMPARE(
+      FileTransfer::pathFromUtf8(FileTransfer::createTempFilePathWithRelative("folder/sub/a.txt", 7)).filename(),
+      std::filesystem::path("a.txt")
+  );
+}
+
+void ClipboardTransferClientTests::appendChunkRefusesMoreThanAnnounced()
+{
+  FileTransferRequest request{};
+  request.fileSize = 4;
+  FileTransfer::reserveFor(request);
+  QVERIFY(FileTransfer::appendChunk(request, "abc"));
+  QVERIFY(FileTransfer::appendChunk(request, "d"));
+  QVERIFY(!FileTransfer::appendChunk(request, "e"));
+  QCOMPARE(request.bytesTransferred, uint64_t{4});
+
+  FileTransferRequest huge{};
+  huge.fileSize = std::numeric_limits<uint64_t>::max();
+  FileTransfer::reserveFor(huge);
+  QVERIFY(huge.data.capacity() <= 64u * 1024 * 1024);
 }
 
 void ClipboardTransferClientTests::sourceErrorIsReported()

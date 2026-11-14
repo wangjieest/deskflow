@@ -11,6 +11,10 @@
 #include "deskflow/ProtocolUtil.h"
 #include "io/IStream.h"
 
+#include <QJsonDocument>
+#include <QJsonObject>
+
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -135,7 +139,7 @@ bool FileTransfer::sendFile(deskflow::IStream *stream, uint32_t requestId,
 {
   LOG_INFO("sending file: %s (requestId=%u)", filePath.c_str(), requestId);
 
-  std::ifstream file(filePath, std::ios::binary | std::ios::ate);
+  std::ifstream file(pathFromUtf8(filePath), std::ios::binary | std::ios::ate);
   if (!file.is_open()) {
     LOG_ERR("failed to open file for transfer: %s", filePath.c_str());
     std::string errorMsg = "File not found";
@@ -152,9 +156,11 @@ bool FileTransfer::sendFile(deskflow::IStream *stream, uint32_t requestId,
   if (lastSlash != std::string::npos)
     fileName = filePath.substr(lastSlash + 1);
 
-  std::ostringstream metaJson;
-  metaJson << "{\"name\":\"" << fileName << "\",\"size\":" << fileSize << "}";
-  std::string metaStr = metaJson.str();
+  // A quote or backslash in the name used to produce JSON the receiver could not parse
+  const QJsonObject meta{
+      {QStringLiteral("name"), QString::fromStdString(fileName)}, {QStringLiteral("size"), static_cast<qint64>(fileSize)}
+  };
+  std::string metaStr = QJsonDocument(meta).toJson(QJsonDocument::Compact).toStdString();
   ProtocolUtil::writef(stream, kMsgDFileChunk, requestId,
                        static_cast<uint8_t>(FileChunkType::Start), &metaStr);
 
@@ -182,123 +188,108 @@ bool FileTransfer::sendFile(deskflow::IStream *stream, uint32_t requestId,
   return true;
 }
 
+std::filesystem::path FileTransfer::pathFromUtf8(const std::string &path)
+{
+  return std::filesystem::path(std::u8string(path.begin(), path.end()));
+}
+
+std::string FileTransfer::pathToUtf8(const std::filesystem::path &path)
+{
+  const auto u8 = path.u8string();
+  return std::string(u8.begin(), u8.end());
+}
+
+std::string FileTransfer::sanitizeRelativePath(const std::string &path)
+{
+  std::string result;
+  size_t start = 0;
+  while (start <= path.size()) {
+    size_t end = path.find_first_of("/\\", start);
+    if (end == std::string::npos)
+      end = path.size();
+    const auto part = path.substr(start, end - start);
+    if (part == ".." || part.find(':') != std::string::npos)
+      return {};
+    if (!part.empty() && part != ".") {
+      if (!result.empty())
+        result += '/';
+      result += part;
+    }
+    start = end + 1;
+  }
+  return result;
+}
+
+void FileTransfer::reserveFor(FileTransferRequest &request)
+{
+  constexpr uint64_t kMaxReserve = 64 * 1024 * 1024;
+  if (!request.isDir)
+    request.data.reserve(static_cast<size_t>(std::min(request.fileSize, kMaxReserve)));
+}
+
+bool FileTransfer::appendChunk(FileTransferRequest &request, const std::string &chunk)
+{
+  if (request.fileSize > 0 && request.bytesTransferred + chunk.size() > request.fileSize)
+    return false;
+  request.data.insert(request.data.end(), chunk.begin(), chunk.end());
+  request.bytesTransferred += chunk.size();
+  return true;
+}
+
 std::string FileTransfer::getTempDirectory()
 {
-#ifdef _WIN32
-  char tempPath[MAX_PATH];
-  DWORD len = GetTempPathA(MAX_PATH, tempPath);
-  if (len > 0 && len < MAX_PATH) {
-    return std::string(tempPath) + "autodeskflow-files" + PATH_SEPARATOR;
-  }
-  return "C:\\Temp\\autodeskflow-files\\";
-#else
-  const char *tmpDir = std::getenv("TMPDIR");
-  if (tmpDir == nullptr)
-    tmpDir = "/tmp";
-  return std::string(tmpDir) + "/autodeskflow-files/";
-#endif
+  // temp_directory_path() is Unicode-aware on Windows, unlike GetTempPathA
+  std::error_code ec;
+  auto base = std::filesystem::temp_directory_path(ec);
+  if (ec)
+    base = pathFromUtf8(PATH_SEPARATOR[0] == '\\' ? "C:\\Temp" : "/tmp");
+  return pathToUtf8(base / "autodeskflow-files") + PATH_SEPARATOR;
 }
 
 std::string FileTransfer::createTempFilePath(const std::string &fileName)
 {
-  std::string tempDir = getTempDirectory();
-#ifdef _WIN32
-  _mkdir(tempDir.c_str());
-#else
-  mkdir(tempDir.c_str(), 0755);
-#endif
+  const std::string tempDir = getTempDirectory();
+  createDirectoryPath(tempDir);
 
-  std::ostringstream path;
-  path << tempDir << fileName;
+  const auto slash = fileName.find_last_of("/\\");
+  std::string safeName = sanitizeRelativePath(slash == std::string::npos ? fileName : fileName.substr(slash + 1));
+  if (safeName.empty())
+    safeName = "file";
 
-  std::string finalPath = path.str();
-  FILE *test = fopen(finalPath.c_str(), "r");
-  if (test) {
-    fclose(test);
-    std::remove(finalPath.c_str());
-  }
-
-  return finalPath;
+  const auto finalPath = pathFromUtf8(tempDir) / pathFromUtf8(safeName);
+  std::error_code ec;
+  std::filesystem::remove(finalPath, ec);
+  return pathToUtf8(finalPath);
 }
 
 std::string FileTransfer::createTempFilePathWithRelative(const std::string &relativePath,
                                                           uint32_t transferId)
 {
-  std::string tempDir = getTempDirectory();
+  const auto sessionDir =
+      pathFromUtf8(getTempDirectory()) / pathFromUtf8("transfer_" + std::to_string(transferId));
 
-  std::ostringstream sessionDir;
-  sessionDir << tempDir << "transfer_" << transferId << PATH_SEPARATOR;
-  createDirectoryPath(sessionDir.str());
-
-  std::string normalizedPath = relativePath;
-  for (char &c : normalizedPath) {
-    if (c == '/' || c == '\\')
-      c = PATH_SEPARATOR[0];
+  std::string safePath = sanitizeRelativePath(relativePath);
+  if (safePath.empty()) {
+    const auto slash = relativePath.find_last_of("/\\");
+    safePath = sanitizeRelativePath(slash == std::string::npos ? relativePath : relativePath.substr(slash + 1));
   }
+  if (safePath.empty())
+    safePath = "file";
 
-  std::string fullPath = sessionDir.str() + normalizedPath;
-
-  size_t lastSep = fullPath.find_last_of(PATH_SEPARATOR);
-  if (lastSep != std::string::npos) {
-    std::string parentDir = fullPath.substr(0, lastSep);
-    createDirectoryPath(parentDir);
-  }
-
-  return fullPath;
+  const auto fullPath = sessionDir / pathFromUtf8(safePath);
+  std::error_code ec;
+  std::filesystem::create_directories(fullPath.parent_path(), ec);
+  return pathToUtf8(fullPath);
 }
 
 bool FileTransfer::createDirectoryPath(const std::string &path)
 {
   if (path.empty())
     return false;
-
-  std::string normalizedPath = path;
-  for (char &c : normalizedPath) {
-    if (c == '/' || c == '\\')
-      c = PATH_SEPARATOR[0];
-  }
-
-  while (!normalizedPath.empty() && normalizedPath.back() == PATH_SEPARATOR[0])
-    normalizedPath.pop_back();
-
-  if (normalizedPath.empty())
-    return false;
-
-#ifdef _WIN32
-  DWORD attrs = GetFileAttributesA(normalizedPath.c_str());
-  if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY))
-    return true;
-  if (CreateDirectoryA(normalizedPath.c_str(), nullptr))
-    return true;
-  if (GetLastError() == ERROR_PATH_NOT_FOUND) {
-    size_t lastSep = normalizedPath.find_last_of(PATH_SEPARATOR);
-    if (lastSep != std::string::npos && lastSep > 0) {
-      std::string parentPath = normalizedPath.substr(0, lastSep);
-      if (parentPath.length() > 2 || parentPath[1] != ':') {
-        if (!createDirectoryPath(parentPath))
-          return false;
-        return CreateDirectoryA(normalizedPath.c_str(), nullptr) != 0;
-      }
-    }
-  }
-  return false;
-#else
-  struct stat st;
-  if (stat(normalizedPath.c_str(), &st) == 0 && S_ISDIR(st.st_mode))
-    return true;
-  if (mkdir(normalizedPath.c_str(), 0755) == 0)
-    return true;
-  if (errno == ENOENT) {
-    size_t lastSep = normalizedPath.find_last_of(PATH_SEPARATOR);
-    if (lastSep != std::string::npos && lastSep > 0) {
-      std::string parentPath = normalizedPath.substr(0, lastSep);
-      if (!createDirectoryPath(parentPath))
-        return false;
-      return mkdir(normalizedPath.c_str(), 0755) == 0;
-    }
-  }
-  return false;
-#endif
+  const auto dir = pathFromUtf8(path);
+  std::error_code ec;
+  std::filesystem::create_directories(dir, ec);
+  return std::filesystem::is_directory(dir, ec);
 }
 
 bool FileTransfer::parseStartChunkEx(
