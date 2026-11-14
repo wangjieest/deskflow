@@ -713,6 +713,9 @@ void MainWindow::createMenuBar()
   m_menuFile->addAction(m_actionRestartCore);
   m_menuFile->addAction(m_actionStopCore);
   m_menuFile->addSeparator();
+  // In the menu bar the shortcut works whenever the main window is active, not only with the tray menu open
+  m_menuFile->addAction(m_actionBecomeHost);
+  m_menuFile->addSeparator();
   m_menuFile->addAction(m_actionQuit);
 
   m_menuEdit->addAction(m_actionSettings);
