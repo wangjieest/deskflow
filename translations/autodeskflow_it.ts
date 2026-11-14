@@ -379,56 +379,8 @@ p, li { white-space: pre-wrap; }
 <context>
     <name>FileTransferDialog</name>
     <message>
-        <source>File Transfer</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Transferring files...</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Current file:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Overall:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Cancel</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Close</source>
-        <translation type="unfinished">Vicino</translation>
-    </message>
-    <message>
-        <source>Transfer complete</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error: %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>File: %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>%1 / %2 MB</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>%1 / %2 KB</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>%1 / %2 bytes</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Transferring files (%1/%2)...</source>
-        <translation type="unfinished"></translation>
+        <translation type="obsolete">Vicino</translation>
     </message>
 </context>
 <context>
@@ -901,6 +853,10 @@ They show up here once they run AutoDeskflow with the same Group Token (Preferen
     </message>
     <message>
         <source>Receiving files into &quot;%1&quot;...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Receiving files into &quot;%1&quot; (%2 of %3)...</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">

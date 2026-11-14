@@ -1701,6 +1701,9 @@ void MainWindow::checkFilePaste(const QString &line)
 
   if (state == QStringLiteral("started")) {
     statusBar()->showMessage(tr("Receiving files into \"%1\"...").arg(folder));
+  } else if (state == QStringLiteral("progress")) {
+    const int total = field(QStringLiteral("total")).toInt();
+    statusBar()->showMessage(tr("Receiving files into \"%1\" (%2 of %3)...").arg(folder).arg(received).arg(total));
   } else if (state == QStringLiteral("done")) {
     notify(tr("Pasted %n item(s) into \"%1\"", nullptr, received).arg(folder), QSystemTrayIcon::Information);
   } else if (state == QStringLiteral("failed")) {

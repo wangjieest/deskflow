@@ -46,6 +46,9 @@ using DataReceivedCallback = std::function<void(bool success, const std::string 
  */
 using BatchCompleteCallback = std::function<void(bool success, const std::vector<std::string> &localPaths)>;
 
+//! Called from the download thread with (items finished, items total), first with 0 before anything starts
+using BatchProgressCallback = std::function<void(size_t done, size_t total)>;
+
 /**
  * @brief File info for transfer
  */
@@ -173,7 +176,7 @@ public:
   void requestFiles(
       const std::string &sourceAddr, uint16_t port, uint64_t sessionId,
       const std::vector<ClipboardTransferFileInfo> &files, BatchCompleteCallback callback,
-      const std::string &destFolder = ""
+      const std::string &destFolder = "", BatchProgressCallback progress = {}
   );
 
   /**
@@ -220,10 +223,13 @@ public:
    * @param destFolder Destination folder for downloaded files
    * @param timeoutMs Timeout in milliseconds (0 = infinite)
    * @param allOk Optional; set to true only if every item arrived before the timeout
+   * @param progress Optional; see BatchProgressCallback
    * @return Paths of the items that did arrive
    */
-  std::vector<std::string>
-  requestFilesAndWait(const std::string &destFolder, uint32_t timeoutMs = 60000, bool *allOk = nullptr);
+  std::vector<std::string> requestFilesAndWait(
+      const std::string &destFolder, uint32_t timeoutMs = 60000, bool *allOk = nullptr,
+      BatchProgressCallback progress = {}
+  );
 
   /**
    * @brief Check if there are pending files for paste
@@ -283,6 +289,7 @@ private:
     std::vector<ClipboardTransferFileInfo> files;
     DataReceivedCallback callback;
     BatchCompleteCallback batchCallback;
+    BatchProgressCallback batchProgress;
   };
 
   // Process messages from queue

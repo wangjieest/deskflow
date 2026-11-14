@@ -21,10 +21,6 @@ add_library(${target} STATIC
   Diagnostic.h
   FileTail.cpp
   FileTail.h
-  FileTransferManager.cpp
-  FileTransferManager.h
-  FileTransferMonitor.cpp
-  FileTransferMonitor.h
   Logger.cpp
   Logger.h
   MainWindow.cpp
@@ -62,8 +58,6 @@ add_library(${target} STATIC
   dialogs/ComputerSettingsDialog.cpp
   dialogs/ComputerSettingsDialog.h
   dialogs/ComputerSettingsDialog.ui
-  dialogs/FileTransferDialog.cpp
-  dialogs/FileTransferDialog.h
   dialogs/FingerprintDialog.cpp
   dialogs/FingerprintDialog.h
   dialogs/HelpDialog.cpp

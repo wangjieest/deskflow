@@ -43,6 +43,7 @@
 
 #include <QMetaEnum>
 
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -123,9 +124,19 @@ Client::Client(
     // (prevents mouse lag from blocking the socket server thread)
     ClipboardTransferThread *transferThread = m_clipboardTransferThread;
     std::thread([transferThread, targetDir]() {
+      // At most two progress lines a second so big folders don't flood the log the GUI parses
+      auto lastReport = std::make_shared<std::chrono::steady_clock::time_point>();
+      const auto progress = [targetDir, lastReport](size_t done, size_t total) {
+        const auto now = std::chrono::steady_clock::now();
+        if (done != total && now - *lastReport < std::chrono::milliseconds(500))
+          return;
+        *lastReport = now;
+        LOG_INFO("FILE_PASTE: state=progress, received=%zu, total=%zu, target=%s", done, total, targetDir.c_str());
+      };
+
       // No overall deadline: each download ends on its own once the peer goes quiet
       bool allOk = false;
-      const auto paths = transferThread->requestFilesAndWait(targetDir, 0, &allOk);
+      const auto paths = transferThread->requestFilesAndWait(targetDir, 0, &allOk, progress);
       if (allOk) {
         LOG_INFO("FILE_PASTE: state=done, received=%zu, target=%s", paths.size(), targetDir.c_str());
       } else {

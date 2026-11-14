@@ -380,55 +380,55 @@ p, li { white-space: pre-wrap; }
     <name>FileTransferDialog</name>
     <message>
         <source>File Transfer</source>
-        <translation>文件传输</translation>
+        <translation type="vanished">文件传输</translation>
     </message>
     <message>
         <source>Transferring files...</source>
-        <translation>正在传输文件…</translation>
+        <translation type="vanished">正在传输文件…</translation>
     </message>
     <message>
         <source>Current file:</source>
-        <translation>当前文件：</translation>
+        <translation type="vanished">当前文件：</translation>
     </message>
     <message>
         <source>Overall:</source>
-        <translation>总进度：</translation>
+        <translation type="vanished">总进度：</translation>
     </message>
     <message>
         <source>Cancel</source>
-        <translation>取消</translation>
+        <translation type="vanished">取消</translation>
     </message>
     <message>
         <source>Close</source>
-        <translation type="unfinished">关闭</translation>
+        <translation type="obsolete">关闭</translation>
     </message>
     <message>
         <source>Transfer complete</source>
-        <translation>传输完成</translation>
+        <translation type="vanished">传输完成</translation>
     </message>
     <message>
         <source>Error: %1</source>
-        <translation>错误：%1</translation>
+        <translation type="vanished">错误：%1</translation>
     </message>
     <message>
         <source>File: %1</source>
-        <translation>文件：%1</translation>
+        <translation type="vanished">文件：%1</translation>
     </message>
     <message>
         <source>%1 / %2 MB</source>
-        <translation>%1 / %2 MB</translation>
+        <translation type="vanished">%1 / %2 MB</translation>
     </message>
     <message>
         <source>%1 / %2 KB</source>
-        <translation>%1 / %2 KB</translation>
+        <translation type="vanished">%1 / %2 KB</translation>
     </message>
     <message>
         <source>%1 / %2 bytes</source>
-        <translation>%1 / %2 字节</translation>
+        <translation type="vanished">%1 / %2 字节</translation>
     </message>
     <message>
         <source>Transferring files (%1/%2)...</source>
-        <translation>正在传输文件（%1/%2）…</translation>
+        <translation type="vanished">正在传输文件（%1/%2）…</translation>
     </message>
 </context>
 <context>
@@ -907,6 +907,10 @@ They show up here once they run AutoDeskflow with the same Group Token (Preferen
     <message>
         <source>Receiving files into &quot;%1&quot;...</source>
         <translation>正在接收文件到“%1”…</translation>
+    </message>
+    <message>
+        <source>Receiving files into &quot;%1&quot; (%2 of %3)...</source>
+        <translation>正在接收文件到“%1”（%2/%3）…</translation>
     </message>
     <message numerus="yes">
         <source>Pasted %n item(s) into &quot;%1&quot;</source>

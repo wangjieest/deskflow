@@ -316,17 +316,21 @@ void ClipboardTransferThread::handleRequestFiles(const Message &msg)
   auto pending = m_pending;
   pending->add();
   std::thread([pending, files = msg.files, sourceAddr = msg.sourceAddr, port = msg.port, sessionId = msg.sessionId,
-               destDir, keepExisting, batchCallback = msg.batchCallback]() {
+               destDir, keepExisting, batchCallback = msg.batchCallback, progress = msg.batchProgress]() {
     std::vector<std::string> paths;
     bool allOk = true;
-    for (const auto &file : files) {
+    if (progress)
+      progress(0, files.size());
+    for (size_t i = 0; i < files.size(); ++i) {
       const auto result =
-          ClipboardTransferClient::downloadFile(sourceAddr, port, sessionId, file.path, destDir, keepExisting);
+          ClipboardTransferClient::downloadFile(sourceAddr, port, sessionId, files[i].path, destDir, keepExisting);
       if (result.success) {
         paths.push_back(result.localPath);
       } else {
         allOk = false;
       }
+      if (progress)
+        progress(i + 1, files.size());
     }
     if (batchCallback) batchCallback(allOk, paths);
     pending->done();
@@ -392,7 +396,7 @@ void ClipboardTransferThread::requestFile(
 
 void ClipboardTransferThread::requestFiles(
     const std::string &sourceAddr, uint16_t port, uint64_t sessionId, const std::vector<ClipboardTransferFileInfo> &files,
-    BatchCompleteCallback callback, const std::string &destFolder
+    BatchCompleteCallback callback, const std::string &destFolder, BatchProgressCallback progress
 )
 {
   Message msg;
@@ -402,6 +406,7 @@ void ClipboardTransferThread::requestFiles(
   msg.sessionId = sessionId;
   msg.files = files;
   msg.batchCallback = callback;
+  msg.batchProgress = std::move(progress);
   msg.destFolder = destFolder;
   postMessage(std::move(msg));
 }
@@ -453,7 +458,9 @@ void ClipboardTransferThread::clearPendingFilesForPaste()
 }
 
 std::vector<std::string>
-ClipboardTransferThread::requestFilesAndWait(const std::string &destFolder, uint32_t timeoutMs, bool *allOk)
+ClipboardTransferThread::requestFilesAndWait(
+    const std::string &destFolder, uint32_t timeoutMs, bool *allOk, BatchProgressCallback progress
+)
 {
   if (allOk)
     *allOk = false;
@@ -500,7 +507,7 @@ ClipboardTransferThread::requestFilesAndWait(const std::string &destFolder, uint
         }
         state->condition.notify_all();
       },
-      destFolder
+      destFolder, std::move(progress)
   );
 
   std::unique_lock<std::mutex> lock(state->mutex);
