@@ -158,6 +158,8 @@ private:
   void startServerAsMaster();
   void addDiscoveredPeersToServerConfig();
   void updatePeerCount();
+  void onDiscoveryError(const QString &message);
+  static QString groupTokenFromSettings();
 
   bool canRunCore() const;
 

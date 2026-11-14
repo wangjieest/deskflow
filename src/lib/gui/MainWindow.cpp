@@ -371,8 +371,14 @@ void MainWindow::settingsChanged(const QString &key)
     return;
   }
 
-  if (key == Settings::Core::ComputerName)
+  if (key == Settings::Core::ComputerName) {
     updateComputerName();
+    if (m_discoveryService)
+      m_discoveryService->setNodeName(Settings::value(Settings::Core::ComputerName).toString());
+  }
+
+  if (key == Settings::Core::GroupToken && m_discoveryService)
+    m_discoveryService->setToken(groupTokenFromSettings());
 
   if ((key == Settings::Security::Certificate) || (key == Settings::Security::KeySize) ||
       (key == Settings::Security::TlsEnabled) || (key == Settings::Security::CheckPeers)) {
@@ -1436,16 +1442,7 @@ using DiscoveryRole = deskflow::gui::discovery::Role;
 void MainWindow::initDiscoveryService()
 {
   m_discoveryService = new DiscoveryService(this);
-
-  // Load token from settings, fallback to username + hash suffix
-  // Hash suffix prevents others from guessing/joining the group by username alone
-  QString token = Settings::value(Settings::Core::GroupToken).toString();
-  if (token.isEmpty()) {
-    QString user = qEnvironmentVariable("USERNAME", qEnvironmentVariable("USER", "autodeskflow")).toLower();
-    QByteArray hash = QCryptographicHash::hash(user.toUtf8(), QCryptographicHash::Sha256);
-    token = user + "-" + hash.toHex().left(8);
-  }
-  m_discoveryService->setToken(token);
+  m_discoveryService->setToken(groupTokenFromSettings());
 
   // Set node name from settings
   QString computerName = Settings::value(Settings::Core::ComputerName).toString();
@@ -1468,8 +1465,35 @@ void MainWindow::initDiscoveryService()
           this, &MainWindow::onShouldYieldMaster);
   connect(m_discoveryService, &DiscoveryService::roleChanged,
           this, &MainWindow::onDiscoveryRoleChanged);
+  connect(m_discoveryService, &DiscoveryService::error, this, &MainWindow::onDiscoveryError);
 
-  m_discoveryService->start();
+  if (m_discoveryService->start())
+    updatePeerCount();
+}
+
+QString MainWindow::groupTokenFromSettings()
+{
+  QString token = Settings::value(Settings::Core::GroupToken).toString();
+  if (!token.isEmpty())
+    return token;
+
+  // Username plus a hash suffix so the group can't be joined by guessing the username alone.
+  // Saved so Preferences shows the token actually in use and it can be shared with other computers.
+  const QString user = qEnvironmentVariable("USERNAME", qEnvironmentVariable("USER", "autodeskflow")).toLower();
+  const QByteArray hash = QCryptographicHash::hash(user.toUtf8(), QCryptographicHash::Sha256);
+  token = user + "-" + hash.toHex().left(8);
+  Settings::setValue(Settings::Core::GroupToken, token);
+  return token;
+}
+
+void MainWindow::onDiscoveryError(const QString &message)
+{
+  qWarning().noquote() << "peer discovery error:" << message;
+  m_btnPeers->setVisible(true);
+  m_btnPeers->setText(QString());
+  m_btnPeers->setIcon(QIcon::fromTheme(QStringLiteral("dialog-warning")));
+  m_btnPeers->setToolTip(tr("Automatic discovery is not working: %1").arg(message));
+  statusBar()->showMessage(tr("Automatic discovery is not working: %1").arg(message), 15000);
 }
 
 void MainWindow::onPeerDiscovered(const deskflow::gui::discovery::PeerNode &peer)
@@ -1496,13 +1520,17 @@ void MainWindow::updatePeerCount()
   const auto peers = m_discoveryService->peers();
   const int count = peers.size();
 
+  m_btnPeers->setVisible(true);
+  m_btnPeers->setIcon(QIcon::fromTheme(QStringLiteral("network-connect")));
+  m_btnPeers->setText(QString::number(count));
+
   if (count == 0) {
-    m_btnPeers->setVisible(false);
+    m_btnPeers->setToolTip(
+        tr("Looking for other computers on this network.\n"
+           "They show up here once they run AutoDeskflow with the same Group Token (Preferences).")
+    );
     return;
   }
-
-  m_btnPeers->setVisible(true);
-  m_btnPeers->setText(QString::number(count));
 
   QStringList peerNames;
   for (const auto &p : peers) {
@@ -1573,6 +1601,7 @@ void MainWindow::onShouldYieldMaster(const QString &winnerNodeId, const QString 
 {
   qInfo() << "[AutoDeskflow] Yielding master to:" << winnerName;
   m_yieldingToMaster = true;
+  statusBar()->showMessage(tr("%1 became the host, this computer will join it").arg(winnerName), 10000);
 
   // Stop current server
   if (m_coreProcess.isStarted() && m_coreProcess.mode() == CoreMode::Server) {
@@ -1589,6 +1618,7 @@ void MainWindow::onShouldConnectToMaster(const QString &ip, uint16_t port)
 {
   qInfo() << "[AutoDeskflow] Connecting to new master at" << ip << ":" << port;
   m_yieldingToMaster = false;
+  statusBar()->showMessage(tr("Connecting to the host at %1").arg(ip), 10000);
 
   // Set auto mode switch flag (suppress error dialogs)
   m_autoModeSwitch = true;
