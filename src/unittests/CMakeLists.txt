@@ -39,7 +39,12 @@ function(create_test)
     target_compile_definitions(${m_NAME} PUBLIC WORDS_BIGENDIAN=1)
   endif()
   add_test(NAME ${m_NAME} COMMAND $<TARGET_FILE:${m_NAME}> WORKING_DIRECTORY ${m_WORKING_DIRECTORY})
-  set_tests_properties(${m_NAME} PROPERTIES DEPENDS ${m_DEPENDS})
+  # Keep tests away from the user's real settings: Settings honours XDG_* on non-Windows platforms
+  set(test_home "${CMAKE_BINARY_DIR}/test-home")
+  set_tests_properties(${m_NAME} PROPERTIES
+    DEPENDS ${m_DEPENDS}
+    ENVIRONMENT "XDG_CONFIG_HOME=${test_home}/config;XDG_STATE_HOME=${test_home}/state"
+  )
   set_property(GLOBAL APPEND PROPERTY ${CMAKE_PROJECT_NAME}_tests ${m_NAME})
 
   if(ENABLE_COVERAGE)
