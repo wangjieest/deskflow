@@ -228,8 +228,6 @@ static void socketServerLoop()
     if (ret <= 0) continue;
 
     int clientFd = accept(s_serverSocket, nullptr, nullptr);
-    { FILE *f = fopen("/tmp/autodeskflow-socket.log","a");
-      if (f) { fprintf(f, "accept: fd=%d err=%d\n", clientFd, errno); fclose(f); } }
     if (clientFd < 0) continue;
 
     // Read command from extension
@@ -238,10 +236,6 @@ static void socketServerLoop()
     if (n > 0) {
       buf[n] = '\0';
       std::string cmd(buf);
-
-      // File log every command for debugging
-      { FILE *f = fopen("/tmp/autodeskflow-socket.log","a");
-        if (f) { fprintf(f, "cmd(%zd): %s\n", n, cmd.substr(0,40).c_str()); fclose(f); } }
 
       if (cmd == "GET_STATE") {
         // Respond with current clipboard state
@@ -308,8 +302,6 @@ void OSXPasteboardBridge::startListening(PasteCallback callback)
                 // Target dir is in note.object (sandboxed apps can't send userInfo)
                 NSString *targetDir = note.object ?: note.userInfo[@"targetDirectory"];
                 LOG_INFO("[FinderPaste] notification received: target=%s", targetDir ? [targetDir UTF8String] : "(nil)");
-                FILE *f = fopen("/tmp/autodeskflow-paste.log", "a");
-                if (f) { fprintf(f, "[FinderPaste] notification: target=%s\n", targetDir ? [targetDir UTF8String] : "(nil)"); fclose(f); }
                 if (targetDir && s_pasteCallback) {
                   s_pasteCallback(std::string([targetDir UTF8String]));
                 }
@@ -410,8 +402,6 @@ void OSXPasteboardBridge::clearPendingFiles()
 void OSXPasteboardBridge::updatePasteboardForCmdV(const std::vector<std::string> &localPaths)
 {
   LOG_INFO("OSXPasteboardBridge: updatePasteboardForCmdV called with %zu file(s)", localPaths.size());
-  { FILE *f = fopen("/tmp/autodeskflow-transfer.log","a");
-    if (f) { fprintf(f,"[AutoDownload] updatePasteboardForCmdV: %zu files\n", localPaths.size()); fclose(f); } }
 
   // IMPORTANT: copy the vector — localPaths is a const-ref to a caller-stack variable
   // that will be destroyed when the calling thread returns. The block must own the data.
@@ -425,8 +415,6 @@ void OSXPasteboardBridge::updatePasteboardForCmdV(const std::vector<std::string>
       updatePasteboardWithFiles(cPaths.data(), static_cast<int>(cPaths.size()));
       LOG_INFO("OSXPasteboardBridge: NSPasteboard updated with %zu file(s) — Cmd+V ready",
                pathsCopy.size());
-      FILE *f = fopen("/tmp/autodeskflow-transfer.log","a");
-      if (f) { fprintf(f,"[AutoDownload] pasteboard updated OK, count=%zu\n", pathsCopy.size()); fclose(f); }
     }
   });
 }
