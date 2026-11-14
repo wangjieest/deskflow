@@ -62,8 +62,6 @@ if(WIN32)
     MSWindowsHook.h
     MSWindowsKeyState.cpp
     MSWindowsKeyState.h
-    MSWindowsP2PStream.cpp
-    MSWindowsP2PStream.h
     MSWindowsPowerManager.cpp
     MSWindowsPowerManager.h
     MSWindowsProcess.cpp
