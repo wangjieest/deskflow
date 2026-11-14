@@ -16,6 +16,7 @@
 #include "deskflow/KeyTypes.h"
 
 #include <map>
+#include <memory>
 
 class Client;
 class ClientInfo;
@@ -41,7 +42,7 @@ public:
   Process messages from the server on \p stream and forward to
   \p client.
   */
-  ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue *events, SocketMultiplexer *socketMultiplexer = nullptr);
+  ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue *events);
   ServerProxy(ServerProxy const &) = delete;
   ServerProxy(ServerProxy &&) = delete;
   virtual ~ServerProxy();
@@ -164,7 +165,9 @@ private:
   IEventQueue *m_events = nullptr;
   std::string m_clipboardDataCached;
   ClipboardChunkAssemblyState m_clipboardChunkState;
-  SocketMultiplexer *m_socketMultiplexer = nullptr;
+  // Created on first file transfer; must outlive m_fileTransferConn, which is torn down in the destructor body
+  std::unique_ptr<SocketMultiplexer> m_fileTransferMultiplexer;
+  SocketMultiplexer *fileTransferMultiplexer();
 
   // File transfer state
   std::map<uint32_t, FileTransferRequest> m_fileTransfers;

@@ -42,11 +42,10 @@
 // ServerProxy
 //
 
-ServerProxy::ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue *events, SocketMultiplexer *socketMultiplexer)
+ServerProxy::ServerProxy(Client *client, deskflow::IStream *stream, IEventQueue *events)
     : m_client(client),
       m_stream(stream),
-      m_events(events),
-      m_socketMultiplexer(socketMultiplexer)
+      m_events(events)
 {
   assert(m_client != nullptr);
   assert(m_stream != nullptr);
@@ -79,6 +78,13 @@ ServerProxy::~ServerProxy()
     delete m_fileTransferConn;
     m_fileTransferConn = nullptr;
   }
+}
+
+SocketMultiplexer *ServerProxy::fileTransferMultiplexer()
+{
+  if (!m_fileTransferMultiplexer)
+    m_fileTransferMultiplexer = std::make_unique<SocketMultiplexer>();
+  return m_fileTransferMultiplexer.get();
 }
 
 void ServerProxy::resetKeepAliveAlarm()
@@ -1160,8 +1166,7 @@ uint32_t ServerProxy::requestFile(
 
     // Create or reuse file transfer connection
     if (!m_fileTransferConn) {
-      SocketMultiplexer *multiplexer = new SocketMultiplexer();
-      m_fileTransferConn = new FileTransferConnection(m_events, multiplexer);
+      m_fileTransferConn = new FileTransferConnection(m_events, fileTransferMultiplexer());
     }
 
     // Set up callback for receiving data
@@ -1490,16 +1495,8 @@ void ServerProxy::handleFileTransferPort()
 
   // Create file transfer connection if needed
   if (!m_fileTransferConn) {
-    // Create a SocketMultiplexer for file transfer if not provided
-    // Each file transfer connection can have its own multiplexer
-    SocketMultiplexer *multiplexer = m_socketMultiplexer;
-    if (!multiplexer) {
-      multiplexer = new SocketMultiplexer();
-      LOG_INFO("[FileTransfer] Created dedicated SocketMultiplexer for file transfers");
-    }
-
     LOG_INFO("[FileTransfer] Creating file transfer connection");
-    m_fileTransferConn = new FileTransferConnection(m_events, multiplexer);
+    m_fileTransferConn = new FileTransferConnection(m_events, fileTransferMultiplexer());
   }
 
   // Get server address from client
