@@ -16,9 +16,11 @@
 #include <QElapsedTimer>
 #include <QThread>
 #include <QFile>
+#include <QFileInfo>
 #include <QTcpServer>
 #include <QTcpSocket>
 
+#include <functional>
 #include <future>
 #include <limits>
 
@@ -81,7 +83,8 @@ FileDownloadOptions singleAttempt()
 // Plays one script per incoming connection while the real client downloads, recording each request
 Result downloadScripted(
     const std::vector<Script> &connections, const std::string &remotePath, const QString &destDir,
-    const FileDownloadOptions &options, bool keep = false, QList<QByteArray> *requests = nullptr
+    const FileDownloadOptions &options, bool keep = false, QList<QByteArray> *requests = nullptr,
+    const std::function<void(size_t)> &afterConnection = {}
 )
 {
   QTcpServer server;
@@ -93,7 +96,8 @@ Result downloadScripted(
     return ClipboardTransferClient::downloadFile("127.0.0.1", port, 42, remotePath, dest, keep, options);
   });
 
-  for (const auto &script : connections) {
+  for (size_t index = 0; index < connections.size(); ++index) {
+    const auto &script = connections[index];
     if (!server.waitForNewConnection(10000))
       break;
     std::unique_ptr<QTcpSocket> socket(server.nextPendingConnection());
@@ -116,6 +120,8 @@ Result downloadScripted(
     socket->disconnectFromHost();
     if (socket->state() != QAbstractSocket::UnconnectedState)
       socket->waitForDisconnected(5000);
+    if (afterConnection)
+      afterConnection(index);
   }
   return pending.get();
 }
@@ -396,6 +402,61 @@ void ClipboardTransferClientTests::restartsWhenSourceIgnoresOffset()
 
   QVERIFY2(result.success, result.error.c_str());
   QCOMPARE(readFile(m_dir->filePath("a.txt")), QByteArray("helloworld"));
+}
+
+void ClipboardTransferClientTests::swappedPartialFileIsNotFollowed()
+{
+#ifdef Q_OS_WIN
+  QSKIP("creating symlinks needs extra privileges on Windows");
+#else
+  QTemporaryDir victimDir;
+  const auto victim = victimDir.filePath("victim.txt");
+  QFile victimFile(victim);
+  QVERIFY(victimFile.open(QIODevice::WriteOnly));
+  victimFile.write("keep");
+  victimFile.close();
+
+  const Script first{{chunk(FileChunkType::Start, start("a.txt", 10)) + chunk(FileChunkType::Data, "hello")}};
+  const Script second{{wholeFile("a.txt", "helloworld")}};
+  FileDownloadOptions options;
+  options.retryDelay = std::chrono::milliseconds(300); // the swap below happens well before the retry
+  QList<QByteArray> requests;
+  const auto partial = m_dir->filePath("a.txt.pasting");
+  // Swap only once the first attempt has flushed its partial file, i.e. between the two attempts
+  const auto swapForSymlink = [&](size_t index) {
+    if (index != 0)
+      return;
+    QElapsedTimer waited;
+    waited.start();
+    while (QFileInfo(partial).size() != 5 && waited.elapsed() < 3000)
+      QThread::msleep(5);
+    QFile::remove(partial);
+    QFile::link(victim, partial);
+  };
+
+  const auto result =
+      downloadScripted({first, second}, "/src/a.txt", m_dir->path(), options, false, &requests, swapForSymlink);
+
+  QVERIFY2(result.success, result.error.c_str());
+  QCOMPARE(readFile(victim), QByteArray("keep"));
+  QCOMPARE(readFile(m_dir->filePath("a.txt")), QByteArray("helloworld"));
+  QCOMPARE(requests.size(), 2);
+  QVERIFY(!requests[1].contains("OFS1"));
+#endif
+}
+
+void ClipboardTransferClientTests::fileWithoutSizeIsRefused()
+{
+  const auto startWithoutSize =
+      FileTransfer::createFileChunk(1, FileChunkType::Start, R"({"name":"a.txt","relativePath":"a.txt","isDir":false})");
+  const auto response = chunk(FileChunkType::Start, startWithoutSize) + chunk(FileChunkType::Data, "data") +
+                        chunk(FileChunkType::End, {});
+
+  const auto result = download(response, "/src/a.txt", m_dir->path());
+
+  QVERIFY(!result.success);
+  QCOMPARE(QString::fromStdString(result.error), QStringLiteral("source did not announce a file size"));
+  QVERIFY2(allEntries(m_dir->path()).isEmpty(), qPrintable(allEntries(m_dir->path()).join(", ")));
 }
 
 void ClipboardTransferClientTests::stalledSourceIsDropped()

@@ -322,12 +322,19 @@ Outcome attemptDownload(const AttemptContext &ctx, uint32_t requestId, Transfer 
     }
   } closer{fd};
 
-  // What is on disk is the truth for where to resume, not what we think we wrote
+  // What is on disk is the truth for where to resume, not what we think we wrote. Anything that is no longer
+  // our regular file (e.g. swapped for a symlink between attempts) is discarded and the download restarts.
   uint64_t resumeFrom = 0;
   if (t.started && !t.isDir) {
     std::error_code ec;
-    const auto onDisk = fs::file_size(t.tempPath, ec);
-    t.written = ec ? 0 : onDisk;
+    const auto status = fs::symlink_status(t.tempPath, ec);
+    if (!ec && fs::is_regular_file(status)) {
+      const auto onDisk = fs::file_size(t.tempPath, ec);
+      t.written = ec ? 0 : onDisk;
+    } else {
+      fs::remove(t.tempPath, ec);
+      t.written = 0;
+    }
     resumeFrom = t.written;
   }
 
@@ -435,6 +442,11 @@ Outcome attemptDownload(const AttemptContext &ctx, uint32_t requestId, Transfer 
 
       std::error_code ec;
       if (!t.started) {
+        // Without a size nothing bounds how much a source may write to disk
+        if (!info.isDir && !info.hasSize) {
+          error = "source did not announce a file size";
+          return Outcome::Fatal;
+        }
         t.started = true;
         t.isDir = info.isDir;
         t.relativePath = relativePath;
@@ -454,8 +466,6 @@ Outcome attemptDownload(const AttemptContext &ctx, uint32_t requestId, Transfer 
           t.finalPath = uniquePath(t.finalPath);
         t.tempPath = t.finalPath;
         t.tempPath += ".pasting";
-        // Removes a planted symlink itself rather than writing through it
-        fs::remove(t.tempPath, ec);
       } else if (relativePath != t.relativePath || info.isDir != t.isDir || info.size != t.announcedSize) {
         error = "source file changed while resuming";
         return Outcome::Fatal;
@@ -464,8 +474,17 @@ Outcome attemptDownload(const AttemptContext &ctx, uint32_t requestId, Transfer 
       if (t.isDir)
         continue;
       const bool resumed = resumeFrom > 0 && info.offset == resumeFrom;
-      if (!resumed)
+      if (resumed) {
+        // The source is already sending only the tail, so a swapped file cannot fall back to a full copy
+        if (!fs::is_regular_file(fs::symlink_status(t.tempPath, ec))) {
+          error = "partial file was replaced while resuming";
+          return Outcome::Fatal;
+        }
+      } else {
         t.written = 0;
+        // Removes a planted symlink itself rather than writing through it
+        fs::remove(t.tempPath, ec);
+      }
       out.open(t.tempPath, std::ios::binary | (resumed ? std::ios::app : std::ios::trunc));
       if (!out) {
         error = "cannot write " + FileTransfer::pathToUtf8(t.tempPath);

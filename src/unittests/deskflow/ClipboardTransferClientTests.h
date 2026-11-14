@@ -33,6 +33,8 @@ private Q_SLOTS:
   void appendChunkRefusesMoreThanAnnounced();
   void resumesAfterDroppedConnection();
   void restartsWhenSourceIgnoresOffset();
+  void swappedPartialFileIsNotFollowed();
+  void fileWithoutSizeIsRefused();
   void stalledSourceIsDropped();
   void slowButSteadySourceIsKept();
   void realServerServesAndResumes();
