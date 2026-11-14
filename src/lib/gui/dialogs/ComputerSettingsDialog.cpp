@@ -51,10 +51,14 @@ ComputerSettingsDialog::ComputerSettingsDialog(QWidget *parent, Computer *comput
   ui->comboSuper->setCurrentIndex(m_computer->modifier(static_cast<int>(KeyboardModifier::Super)));
   ui->comboAltGr->setCurrentIndex(m_computer->modifier(static_cast<int>(KeyboardModifier::AltGr)));
 
-  ui->comboPreset->setCurrentIndex(detectCurrentPreset());
+  ui->comboPreset->addItem(tr("Custom"));
+  syncPresetToModifiers();
   connect(
       ui->comboPreset, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &ComputerSettingsDialog::applyPreset
   );
+  for (auto *combo : {ui->comboShift, ui->comboCtrl, ui->comboAlt, ui->comboMeta, ui->comboSuper}) {
+    connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] { syncPresetToModifiers(); });
+  }
 
   ui->chkDeadTopLeft->setChecked(m_computer->switchCorner(static_cast<int>(TopLeft)));
   ui->chkDeadTopRight->setChecked(m_computer->switchCorner(static_cast<int>(TopRight)));
@@ -167,7 +171,7 @@ struct ModifierPreset
   KeyboardModifier super;
 };
 
-// Index matches comboPreset: 0 = Default, 1 = Windows -> Mac, 2 = Mac -> Windows
+// Index matches comboPreset: 0 = Default, 1 = Windows -> Mac, 2 = Mac -> Windows; "Custom" follows the last one
 constexpr ModifierPreset kModifierPresets[] = {
     {KeyboardModifier::Shift, KeyboardModifier::Ctrl, KeyboardModifier::Alt, KeyboardModifier::Meta,
      KeyboardModifier::Super},
@@ -188,7 +192,13 @@ int ComputerSettingsDialog::detectCurrentPreset() const
       return i;
     }
   }
-  return 0;
+  return static_cast<int>(std::size(kModifierPresets));
+}
+
+void ComputerSettingsDialog::syncPresetToModifiers()
+{
+  QSignalBlocker blocker(ui->comboPreset);
+  ui->comboPreset->setCurrentIndex(detectCurrentPreset());
 }
 
 void ComputerSettingsDialog::applyPreset(int presetIndex)

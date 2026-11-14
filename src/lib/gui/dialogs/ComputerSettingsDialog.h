@@ -41,6 +41,7 @@ private Q_SLOTS:
 
 private:
   int detectCurrentPreset() const;
+  void syncPresetToModifiers();
   std::unique_ptr<Ui::ComputerSettingsDialog> ui;
   Computer *m_computer;
 };
