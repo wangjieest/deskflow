@@ -11,6 +11,7 @@
 #include <objidl.h>
 #include <shlobj.h>
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -173,9 +174,10 @@ private:
   BOOL m_inOperation;
 
   // Batch download state: download all files on first GetData(FILECONTENTS)
-  bool m_batchDownloaded = false;
+  struct BatchDownload;
+  std::shared_ptr<BatchDownload> m_download;
   std::vector<std::string> m_localPaths; // index matches m_files
 
-  //! Download all files to temp directory in one batch
+  //! Start the batch download if needed and wait (pumping messages) until it is done or times out
   void downloadAllFiles();
 };

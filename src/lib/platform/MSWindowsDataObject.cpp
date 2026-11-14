@@ -12,8 +12,9 @@
 #include <shlwapi.h>
 #include <strsafe.h>
 #include <algorithm>
-#include <thread>
 #include <memory>
+#include <mutex>
+#include <thread>
 
 // Initialize static members
 UINT MSWindowsDataObject::s_cfFileDescriptor = 0;
@@ -333,7 +334,7 @@ HRESULT MSWindowsDataObject::createFileGroupDescriptor(STGMEDIUM *pMedium)
       fd.dwFileAttributes = FILE_ATTRIBUTE_NORMAL;
     }
 
-    LOG_DEBUG("  File %zu: name='%S', size=%llu, isDir=%d", i, displayName, file.size, file.isDir);
+    LOG_DEBUG("  File %zu: name='%S', size=%llu, isDir=%d", i, displayName.c_str(), file.size, file.isDir);
   }
 
   GlobalUnlock(hGlobal);
@@ -356,10 +357,8 @@ HRESULT MSWindowsDataObject::createFileContents(int fileIndex, STGMEDIUM *pMediu
     return DV_E_FORMATETC;
   }
 
-  // Batch download all files on the first GetData(FILECONTENTS) call
-  if (!m_batchDownloaded) {
-    downloadAllFiles();
-  }
+  // The first GetData(FILECONTENTS) starts the batch; later and re-entrant calls wait for it
+  downloadAllFiles();
 
   // Check if this file was downloaded successfully
   if (fileIndex >= static_cast<int>(m_localPaths.size()) || m_localPaths[fileIndex].empty()) {
@@ -367,11 +366,15 @@ HRESULT MSWindowsDataObject::createFileContents(int fileIndex, STGMEDIUM *pMediu
     return E_FAIL;
   }
 
-  const std::string &localPath = m_localPaths[fileIndex];
+  const std::string localPath = m_localPaths[fileIndex];
   LOG_DEBUG("createFileContents[%d]: returning IStream for %s", fileIndex, localPath.c_str());
 
   // Open the downloaded temp file as IStream
   int wideLen = MultiByteToWideChar(CP_UTF8, 0, localPath.c_str(), -1, nullptr, 0);
+  if (wideLen <= 0) {
+    LOG_ERR("createFileContents[%d]: invalid UTF-8 path", fileIndex);
+    return E_FAIL;
+  }
   std::wstring widePath(wideLen - 1, 0);
   MultiByteToWideChar(CP_UTF8, 0, localPath.c_str(), -1, widePath.data(), wideLen);
 
@@ -388,94 +391,83 @@ HRESULT MSWindowsDataObject::createFileContents(int fileIndex, STGMEDIUM *pMediu
   return S_OK;
 }
 
+// Owned jointly with the download thread, so the event outlives whichever side finishes first
+struct MSWindowsDataObject::BatchDownload
+{
+  HANDLE done = nullptr;
+  std::mutex mutex;
+  std::vector<std::string> paths; // index matches m_files
+
+  ~BatchDownload()
+  {
+    if (done)
+      CloseHandle(done);
+  }
+};
+
 void MSWindowsDataObject::downloadAllFiles()
 {
-  m_batchDownloaded = true;
-  m_localPaths.resize(m_files.size());
-
-  if (!m_transferClient) {
-    LOG_ERR("downloadAllFiles: no transfer client");
-    return;
-  }
-
-  size_t fileCount = 0;
-  for (const auto &f : m_files) {
-    if (!f.isDir) fileCount++;
-  }
-
-  LOG_DEBUG("downloadAllFiles: downloading %zu files sequentially", fileCount);
-
-  // Download all files one by one on a single background thread
-  HANDLE hDoneEvent = CreateEvent(nullptr, TRUE, FALSE, nullptr);
-  if (!hDoneEvent) return;
-
-  auto localPaths = std::make_shared<std::vector<std::string>>(m_files.size());
-  auto files = m_files; // copy for thread
-  ClipboardTransferClient *client = m_transferClient;
-
-  std::thread([=]() {
-    for (size_t i = 0; i < files.size(); ++i) {
-      if (files[i].isDir) continue;
-
-      const FileMetadata &file = files[i];
-      std::atomic<bool> done{false};
-
-      client->requestFile(
-          file.sourceAddr, file.sourcePort, file.sessionId, file.remotePath,
-          [&](bool ok, const std::string &path, const std::string &err) {
-            if (ok) {
-              (*localPaths)[i] = path;
-              LOG_DEBUG("downloadAllFiles[%zu]: %s", i, path.c_str());
-            } else {
-              LOG_ERR("downloadAllFiles[%zu]: %s", i, err.c_str());
-            }
-            done.store(true);
-          }
-      );
-
-      // Wait for this file to finish before starting the next
-      while (!done.load()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
+  // Explorer may re-enter GetData while the loop below dispatches messages; every caller waits on one batch
+  if (!m_download) {
+    if (!m_transferClient) {
+      LOG_ERR("downloadAllFiles: no transfer client");
+      return;
     }
-    SetEvent(hDoneEvent);
-  }).detach();
+    auto batch = std::make_shared<BatchDownload>();
+    batch->done = CreateEvent(nullptr, TRUE, FALSE, nullptr);
+    if (!batch->done) {
+      LOG_ERR("downloadAllFiles: CreateEvent failed: %lu", GetLastError());
+      return;
+    }
+    batch->paths.resize(m_files.size());
+    m_download = batch;
 
-  // Pump COM messages while waiting for all downloads
-  const DWORD timeout = 300000; // 5 minutes
-  DWORD startTime = GetTickCount();
+    const std::string destDir = m_transferClient->getTempDirectory();
+    LOG_DEBUG("downloadAllFiles: downloading %zu item(s) into %s", m_files.size(), destDir.c_str());
 
+    // One sequential thread; each download ends on its own once the source stalls
+    std::thread([batch, files = m_files, destDir]() {
+      for (size_t i = 0; i < files.size(); ++i) {
+        const FileMetadata &file = files[i];
+        if (file.isDir)
+          continue;
+        const auto result = ClipboardTransferClient::downloadFile(
+            file.sourceAddr, file.sourcePort, file.sessionId, file.remotePath, destDir, false
+        );
+        if (!result.success) {
+          LOG_ERR("downloadAllFiles[%zu]: %s", i, result.error.c_str());
+          continue;
+        }
+        std::lock_guard<std::mutex> lock(batch->mutex);
+        batch->paths[i] = result.localPath;
+      }
+      SetEvent(batch->done);
+    }).detach();
+  }
+
+  const auto batch = m_download;
+  constexpr ULONGLONG kTimeoutMs = 300000;
+  const ULONGLONG start = GetTickCount64();
   while (true) {
-    DWORD elapsed = GetTickCount() - startTime;
-    if (elapsed >= timeout) {
-      LOG_ERR("downloadAllFiles: timed out");
+    const ULONGLONG elapsed = GetTickCount64() - start;
+    if (elapsed >= kTimeoutMs) {
+      LOG_ERR("downloadAllFiles: timed out, handing over what has arrived");
       break;
     }
-
-    DWORD waitResult = MsgWaitForMultipleObjects(
-        1, &hDoneEvent, FALSE, timeout - elapsed, QS_ALLINPUT
-    );
-
-    if (waitResult == WAIT_OBJECT_0) {
+    // Keep pumping so COM calls into this thread are served while we wait
+    const DWORD wait =
+        MsgWaitForMultipleObjects(1, &batch->done, FALSE, static_cast<DWORD>(kTimeoutMs - elapsed), QS_ALLINPUT);
+    if (wait != WAIT_OBJECT_0 + 1)
       break;
-    } else if (waitResult == WAIT_OBJECT_0 + 1) {
-      MSG msg;
-      while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
-      }
-    } else {
-      break;
+    MSG msg;
+    while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+      TranslateMessage(&msg);
+      DispatchMessage(&msg);
     }
   }
 
-  CloseHandle(hDoneEvent);
-
-  for (size_t i = 0; i < m_files.size(); ++i) {
-    m_localPaths[i] = (*localPaths)[i];
-  }
-
-  LOG_DEBUG("downloadAllFiles: complete (%zu files)", fileCount);
+  std::lock_guard<std::mutex> lock(batch->mutex);
+  m_localPaths = batch->paths;
 }
 
 //
