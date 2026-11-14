@@ -21,6 +21,10 @@ bool isFileTransferEnabled();
 //! Fill dst with every format of src except FileList; src must already be open
 void copyWithoutFileList(const IClipboard &src, Clipboard &dst);
 
+//! Unguessable non-zero session id; the file servers trust whoever presents it.
+//! Kept within 53 bits so it survives any JSON parser that reads numbers as doubles.
+uint64_t newTransferSessionId();
+
 //! Clipboard metadata for deferred/lazy transfer
 /*!
 This structure contains metadata about clipboard content, allowing clients

@@ -557,11 +557,6 @@ private:
   bool m_disableLockToComputer = false;
   bool m_enableClipboard = true;
 
-  //! Global session ID counter for clipboard deferred transfer
-  /*! Incremented each time any clipboard content changes. Used to generate
-      unique session IDs for validation. */
-  uint64_t m_nextSessionId = 1;
-
   //! Point-to-point file transfer server (for serving files when this host is the copy source)
   FileTransferServer *m_fileTransferServer = nullptr;
   SocketMultiplexer *m_fileTransferMultiplexer = nullptr;

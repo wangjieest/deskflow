@@ -1738,7 +1738,7 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
 
   // Update session ID for deferred transfer validation
   // This also clears the list of clients that have received full data
-  clipboard.m_sessionId = m_nextSessionId++;
+  clipboard.m_sessionId = newTransferSessionId();
   clipboard.m_allowedFilePaths.clear();
   clipboard.m_clientsWithFullData.clear();
 
@@ -2553,7 +2553,7 @@ void Server::startHostFileTransferServer(const std::string &fileListData)
   }
 
   // Generate new session ID
-  m_currentFileSessionId = static_cast<uint64_t>(std::time(nullptr)) << 32 | static_cast<uint64_t>(std::rand());
+  m_currentFileSessionId = newTransferSessionId();
 
   LOG_INFO("[Server] starting host file transfer server (sessionId=%llu)", m_currentFileSessionId);
 

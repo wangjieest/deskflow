@@ -1084,12 +1084,13 @@ void Client::startFileTransferServer(const std::string &fileListJson)
   // This prevents creating multiple sessions for the same clipboard operation
   // (macOS often triggers clipboard updates multiple times)
   uint64_t now = static_cast<uint64_t>(std::time(nullptr));
-  uint64_t lastSessionTime = m_currentFileSessionId >> 32;
+  uint64_t lastSessionTime = m_currentFileSessionTime;
 
   bool isNewSession = false;
   if (m_currentFileSessionId == 0 || (now - lastSessionTime) > 1) {
     // No session or session is older than 1 second - create new one
-    m_currentFileSessionId = now << 32 | static_cast<uint64_t>(std::rand());
+    m_currentFileSessionId = newTransferSessionId();
+    m_currentFileSessionTime = now;
     LOG_INFO("[Client] starting clipboard transfer thread with new session (sessionId=%llu)", m_currentFileSessionId);
     isNewSession = true;
   } else {

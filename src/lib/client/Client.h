@@ -290,4 +290,5 @@ private:
   // ClipboardTransferThread runs in QThread with proper TLS initialization
   ClipboardTransferThread *m_clipboardTransferThread = nullptr;
   uint64_t m_currentFileSessionId = 0;
+  uint64_t m_currentFileSessionTime = 0;
 };

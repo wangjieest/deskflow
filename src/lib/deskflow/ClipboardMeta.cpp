@@ -10,11 +10,22 @@
 #include "common/Settings.h"
 #include "deskflow/Clipboard.h"
 
+#include <QRandomGenerator>
+
 #include <sstream>
 
 bool isFileTransferEnabled()
 {
   return Settings::value(Settings::Core::EnableFileTransfer).toBool();
+}
+
+uint64_t newTransferSessionId()
+{
+  constexpr uint64_t kMask = (uint64_t{1} << 53) - 1;
+  uint64_t id = 0;
+  while (id == 0)
+    id = QRandomGenerator::system()->generate64() & kMask;
+  return id;
 }
 
 void copyWithoutFileList(const IClipboard &src, Clipboard &dst)
