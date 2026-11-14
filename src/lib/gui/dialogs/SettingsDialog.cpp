@@ -142,6 +142,8 @@ void SettingsDialog::initConnections() const
   connect(ui->cbRunExitCommand, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->lineCommandEnter, &QLineEdit::textChanged, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->lineCommandExit, &QLineEdit::textChanged, this, &SettingsDialog::setButtonBoxEnabledButtons);
+  connect(ui->lineGroupToken, &QLineEdit::textChanged, this, &SettingsDialog::setButtonBoxEnabledButtons);
+  connect(ui->cbEnableFileTransfer, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(Settings::instance(), &Settings::settingsWritableChanged, this, &SettingsDialog::updateControls);
 }
 
@@ -456,6 +458,8 @@ bool SettingsDialog::isModified() const
       (ui->cbRunExitCommand->isChecked() != Settings::value(Settings::Core::EnableExitCommand).toBool()) ||
       (ui->lineCommandEnter->text() != Settings::value(Settings::Core::ComputerEnterCommand).toString()) ||
       (ui->lineCommandExit->text() != Settings::value(Settings::Core::ComputerExitCommand).toString()) ||
+      (ui->lineGroupToken->text() != Settings::value(Settings::Core::GroupToken).toString()) ||
+      (ui->cbEnableFileTransfer->isChecked() != Settings::value(Settings::Core::EnableFileTransfer).toBool()) ||
       (I18N::nativeTo639Name(ui->comboLanguage->currentText()) != Settings::value(Settings::Core::Language).toString());
 
   if (!ignoreInterface)
@@ -492,6 +496,7 @@ bool SettingsDialog::isDefault() const
       (ui->lineCommandExit->text() == Settings::defaultValue(Settings::Core::ComputerExitCommand).toString()) &&
       (ui->cbRunEnterCommand->isChecked() == Settings::defaultValue(Settings::Core::EnableEnterCommand).toBool()) &&
       (ui->cbRunExitCommand->isChecked() == Settings::defaultValue(Settings::Core::EnableExitCommand).toBool()) &&
+      (ui->cbEnableFileTransfer->isChecked() == Settings::defaultValue(Settings::Core::EnableFileTransfer).toBool()) &&
       (ui->comboLanguage->currentText() == "English")
   );
 }
@@ -524,6 +529,8 @@ void SettingsDialog::resetToDefault()
 
   const auto processMode = Settings::defaultValue(Settings::Core::ProcessMode).value<Settings::ProcessMode>();
   ui->groupService->setChecked(processMode == Settings::ProcessMode::Service);
+
+  ui->cbEnableFileTransfer->setChecked(Settings::defaultValue(Settings::Core::EnableFileTransfer).toBool());
 
   if (!deskflow::platform::isWindows())
     ui->groupService->setVisible(false);
