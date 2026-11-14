@@ -159,7 +159,8 @@ void FileTransferListener::handleClientAccepted(IDataSocket *socket)
   LOG_INFO("[FileTransfer] Client connected to file transfer port");
 
   // Create stream for the socket
-  deskflow::IStream *stream = new PacketStreamFilter(m_events, socket, m_socketMultiplexer);
+  // Third argument is adoptStream; the cleanup paths delete stream and socket separately
+  deskflow::IStream *stream = new PacketStreamFilter(m_events, socket, false);
 
   // Register disconnect handler
   m_events->addHandler(EventTypes::SocketDisconnected, socket, [this, socket](const auto &) {

@@ -266,7 +266,9 @@ void FileTransferServer::handleClientConnecting()
 
   // Create PacketStreamFilter for sending responses (client expects packet-framed data)
   // But we'll read raw bytes from socket for P2P request header parsing
-  deskflow::IStream *stream = new PacketStreamFilter(m_events, rawSocket, m_socketMultiplexer);
+  // The third argument is adoptStream: a multiplexer pointer here silently meant true, so every cleanup that
+  // deletes both stream and socket freed the socket twice
+  deskflow::IStream *stream = new PacketStreamFilter(m_events, rawSocket, false);
 
   // Register handlers on the raw socket
   m_events->addHandler(EventTypes::SocketDisconnected, rawSocket, [this, rawSocket](const auto &) {

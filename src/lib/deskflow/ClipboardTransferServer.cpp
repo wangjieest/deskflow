@@ -110,7 +110,9 @@ void ClipboardTransferServer::stop()
     IDataSocket *socket = pair.first;
     m_events->removeHandler(EventTypes::SocketDisconnected, socket);
     m_events->removeHandler(EventTypes::StreamInputReady, socket);
-    delete pair.second.stream;
+    // stream is the socket itself; deleting both was a double free whenever a client was still connected
+    if (pair.second.stream != socket)
+      delete pair.second.stream;
     delete socket;
   }
   m_connections.clear();

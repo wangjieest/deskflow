@@ -49,7 +49,8 @@ bool FileTransferConnection::connect(const NetworkAddress &serverAddress, uint32
     m_socket->connect(fileTransferAddr);
 
     // Create stream
-    m_stream = new PacketStreamFilter(m_events, m_socket, m_socketMultiplexer);
+    // Third argument is adoptStream; the cleanup paths delete m_stream and m_socket separately
+    m_stream = new PacketStreamFilter(m_events, m_socket, false);
 
     LOG_INFO("[FileTransfer] ✅ Connected to file transfer channel");
 
