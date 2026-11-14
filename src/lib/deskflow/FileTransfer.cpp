@@ -248,12 +248,13 @@ std::string FileTransfer::privateTempDirectory(const std::string &name)
 #ifdef _WIN32
   const auto dir = base / pathFromUtf8(name);
   fs::create_directories(dir, ec);
-  return pathToUtf8(dir);
+  return fs::is_directory(dir, ec) ? pathToUtf8(dir) : std::string();
 #else
-  // A fixed name in a shared /tmp could be pre-created by another user to receive our files
+  // A fixed name in a shared /tmp could be pre-created by another user to receive our files.
+  // Only a folder we just created is chmod-ed, without following links; anything else must already verify.
   const auto dir = base / pathFromUtf8(name + "-" + std::to_string(getuid()));
-  fs::create_directory(dir, ec);
-  fs::permissions(dir, fs::perms::owner_all, fs::perm_options::replace, ec);
+  if (fs::create_directory(dir, ec))
+    fs::permissions(dir, fs::perms::owner_all, fs::perm_options::replace | fs::perm_options::nofollow, ec);
   struct stat st{};
   if (lstat(dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == getuid() && (st.st_mode & 077) == 0)
     return pathToUtf8(dir);
@@ -261,19 +262,23 @@ std::string FileTransfer::privateTempDirectory(const std::string &name)
   std::string pattern = pathToUtf8(base / pathFromUtf8(name + "-XXXXXX"));
   if (mkdtemp(pattern.data()) != nullptr)
     return pattern;
-  return pathToUtf8(dir);
+  // Fail closed: callers treat an empty folder as an error rather than writing somewhere unverified
+  return {};
 #endif
 }
 
 std::string FileTransfer::getTempDirectory()
 {
-  return privateTempDirectory("autodeskflow-files") + PATH_SEPARATOR;
+  const auto dir = privateTempDirectory("autodeskflow-files");
+  return dir.empty() ? std::string() : dir + PATH_SEPARATOR;
 }
 
 std::string FileTransfer::createTempFilePath(const std::string &fileName)
 {
+  // An empty result makes the caller's open fail instead of writing relative to the working directory
   const std::string tempDir = getTempDirectory();
-  createDirectoryPath(tempDir);
+  if (tempDir.empty())
+    return {};
 
   const auto slash = fileName.find_last_of("/\\");
   std::string safeName = sanitizeRelativePath(slash == std::string::npos ? fileName : fileName.substr(slash + 1));
@@ -289,8 +294,10 @@ std::string FileTransfer::createTempFilePath(const std::string &fileName)
 std::string FileTransfer::createTempFilePathWithRelative(const std::string &relativePath,
                                                           uint32_t transferId)
 {
-  const auto sessionDir =
-      pathFromUtf8(getTempDirectory()) / pathFromUtf8("transfer_" + std::to_string(transferId));
+  const std::string tempDir = getTempDirectory();
+  if (tempDir.empty())
+    return {};
+  const auto sessionDir = pathFromUtf8(tempDir) / pathFromUtf8("transfer_" + std::to_string(transferId));
 
   std::string safePath = sanitizeRelativePath(relativePath);
   if (safePath.empty()) {

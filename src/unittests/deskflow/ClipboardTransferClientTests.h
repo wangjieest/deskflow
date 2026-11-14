@@ -35,6 +35,7 @@ private Q_SLOTS:
   void restartsWhenSourceIgnoresOffset();
   void swappedPartialFileIsNotFollowed();
   void hardLinkedPartialFileIsNotFollowed();
+  void privateTempFolderIgnoresPlantedLink();
   void fileWithoutSizeIsRefused();
   void stalledSourceIsDropped();
   void slowButSteadySourceIsKept();

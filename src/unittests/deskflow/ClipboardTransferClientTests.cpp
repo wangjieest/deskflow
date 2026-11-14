@@ -12,6 +12,7 @@
 #include "deskflow/ClipboardTransferThread.h"
 #include "deskflow/FileTransfer.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QThread>
@@ -24,6 +25,11 @@
 #include <functional>
 #include <future>
 #include <limits>
+
+#ifndef _WIN32
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -482,6 +488,39 @@ void ClipboardTransferClientTests::hardLinkedPartialFileIsNotFollowed()
   QCOMPARE(readFile(victim), QByteArray("keep!"));
   QCOMPARE(requests.size(), 2);
   QVERIFY(!requests[1].contains("OFS1"));
+}
+
+void ClipboardTransferClientTests::privateTempFolderIgnoresPlantedLink()
+{
+#ifdef Q_OS_WIN
+  QSKIP("POSIX-only: the per-user folder name and permissions do not apply on Windows");
+#else
+  namespace fs = std::filesystem;
+  const std::string name = "adf-test-" + std::to_string(QDateTime::currentMSecsSinceEpoch());
+  const fs::path base = fs::temp_directory_path();
+  const fs::path expected = base / (name + "-" + std::to_string(getuid()));
+
+  // Someone else's folder reached through a link planted at the expected name must be left alone
+  QTemporaryDir planted;
+  fs::permissions(planted.path().toStdString(), fs::perms(0755), fs::perm_options::replace);
+  fs::create_directory_symlink(planted.path().toStdString(), expected);
+
+  const auto chosen = FileTransfer::privateTempDirectory(name);
+
+  struct stat plantedStat{};
+  QCOMPARE(::stat(planted.path().toUtf8().constData(), &plantedStat), 0);
+  QCOMPARE(plantedStat.st_mode & 0777, 0755u);
+  QVERIFY(!chosen.empty());
+  QVERIFY(fs::path(chosen) != expected);
+  struct stat chosenStat{};
+  QCOMPARE(::lstat(chosen.c_str(), &chosenStat), 0);
+  QVERIFY(S_ISDIR(chosenStat.st_mode));
+  QCOMPARE(chosenStat.st_mode & 0777, 0700u);
+
+  std::error_code ec;
+  fs::remove(expected, ec);
+  fs::remove_all(chosen, ec);
+#endif
 }
 
 void ClipboardTransferClientTests::fileWithoutSizeIsRefused()
