@@ -64,6 +64,26 @@ public:
       FileTransferCallback callback
   );
 
+  struct DownloadResult
+  {
+    bool success = false;
+    std::string localPath;
+    std::string error;
+  };
+
+  /**
+   * @brief Download one entry into destDir, blocking the calling thread
+   *
+   * Touches no member state, so detached threads may call it after the client is gone.
+   * The entry lands at destDir/<sanitized relative path from the source>.
+   *
+   * @param keepExisting When true an existing file is kept and the download gets a "name 2.ext" style name
+   */
+  static DownloadResult downloadFile(
+      const std::string &sourceAddr, uint16_t port, uint64_t sessionId, const std::string &remotePath,
+      const std::string &destDir, bool keepExisting
+  );
+
   /**
    * @brief Close all connections
    */

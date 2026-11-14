@@ -18,6 +18,7 @@
 #include "net/SocketException.h"
 
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -408,7 +409,9 @@ bool ClipboardTransferServer::sendFile(
 {
   LOG_INFO("[ClipboardTransferServer] sending file: %s (requestId=%u)", filePath.c_str(), requestId);
 
-  std::ifstream file(filePath, std::ios::binary | std::ios::ate);
+  // Paths are UTF-8; a narrow-char path would be read in the ANSI code page on Windows
+  const std::filesystem::path nativePath(std::u8string(filePath.begin(), filePath.end()));
+  std::ifstream file(nativePath, std::ios::binary | std::ios::ate);
   if (!file.is_open()) {
     LOG_ERR("[ClipboardTransferServer] failed to open file: %s", filePath.c_str());
     sendError(stream, requestId, "File not found");

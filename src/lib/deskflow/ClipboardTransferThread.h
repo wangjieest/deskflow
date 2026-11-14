@@ -320,10 +320,28 @@ private:
   // Note: Transfer components (IEventQueue, SocketMultiplexer, ISocketFactory,
   // ClipboardTransferServer, ClipboardTransferClient) are now owned by Worker
 
-  // Pending request tracking
-  std::atomic<int> m_pendingRequests{0};
-  mutable std::mutex m_pendingMutex;
-  std::condition_variable m_pendingCondition;
+  // Shared with detached download threads so they never touch this object after it is gone
+  struct PendingState
+  {
+    std::mutex mutex;
+    std::condition_variable condition;
+    int count = 0;
+
+    void add()
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      ++count;
+    }
+    void done()
+    {
+      {
+        std::lock_guard<std::mutex> lock(mutex);
+        --count;
+      }
+      condition.notify_all();
+    }
+  };
+  std::shared_ptr<PendingState> m_pending = std::make_shared<PendingState>();
 
   // Pending files for paste (cross-platform)
   std::vector<ClipboardTransferFileInfo> m_pendingPasteFiles;

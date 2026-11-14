@@ -264,28 +264,25 @@ void ClipboardTransferThread::handleRequestFile(const Message &msg)
       "[ClipboardTransfer] requesting file: %s from %s:%u", msg.remotePath.c_str(), msg.sourceAddr.c_str(), msg.port
   );
 
-  m_pendingRequests++;
-
   ClipboardTransferClient *client = m_worker ? m_worker->getClient() : nullptr;
-  if (client) {
-    client->requestFile(
-        msg.sourceAddr, msg.port, msg.sessionId, msg.remotePath,
-        [this, callback = msg.callback](bool success, const std::string &localPath, const std::string &error) {
-          m_pendingRequests--;
-          m_pendingCondition.notify_all();
-
-          if (callback) {
-            callback(success, localPath, error);
-          }
-        }
-    );
-  } else {
-    m_pendingRequests--;
-    m_pendingCondition.notify_all();
+  if (!client) {
     if (msg.callback) {
       msg.callback(false, "", "Client not initialized");
     }
+    return;
   }
+
+  auto pending = m_pending;
+  pending->add();
+  client->requestFile(
+      msg.sourceAddr, msg.port, msg.sessionId, msg.remotePath,
+      [pending, callback = msg.callback](bool success, const std::string &localPath, const std::string &error) {
+        if (callback) {
+          callback(success, localPath, error);
+        }
+        pending->done();
+      }
+  );
 }
 
 void ClipboardTransferThread::handleRequestFiles(const Message &msg)
@@ -302,58 +299,37 @@ void ClipboardTransferThread::handleRequestFiles(const Message &msg)
     return;
   }
 
-  m_pendingRequests++;
-
-  // Set destination folder on the client so files go directly there
   ClipboardTransferClient *client = m_worker ? m_worker->getClient() : nullptr;
   if (!client) {
     LOG_ERR("[ClipboardTransfer] handleRequestFiles: client is null (worker=%s)", m_worker ? "ok" : "null");
     if (msg.batchCallback) msg.batchCallback(false, {});
     return;
   }
-  if (!msg.destFolder.empty()) {
-    client->setDestinationFolder(msg.destFolder);
-  }
 
-  // Download files sequentially in a single background thread to avoid
-  // spawning hundreds of concurrent connections for large batches.
-  auto files = msg.files;
-  auto sourceAddr = msg.sourceAddr;
-  auto port = msg.port;
-  auto sessionId = msg.sessionId;
-  auto destFolder = msg.destFolder;
-  auto batchCallback = msg.batchCallback;
+  // An explicit destination is a user folder: never overwrite what is already there
+  const bool keepExisting = !msg.destFolder.empty();
+  const std::string destDir = keepExisting ? msg.destFolder : client->getTempDirectory();
 
-  std::thread([this, client, files, sourceAddr, port, sessionId, destFolder, batchCallback]() {
+  // Sequential downloads on one thread so a large batch doesn't open hundreds of connections.
+  // Each download blocks until it finishes or the peer stalls past the socket timeout, so a big
+  // file is never abandoned half way.
+  auto pending = m_pending;
+  pending->add();
+  std::thread([pending, files = msg.files, sourceAddr = msg.sourceAddr, port = msg.port, sessionId = msg.sessionId,
+               destDir, keepExisting, batchCallback = msg.batchCallback]() {
     std::vector<std::string> paths;
     bool allOk = true;
-
     for (const auto &file : files) {
-      std::mutex m; std::condition_variable cv; bool done = false;
-      bool ok = false; std::string lp;
-
-      client->requestFile(
-          sourceAddr, port, sessionId, file.path,
-          [&](bool fileSuccess, const std::string &localPath, const std::string &err) {
-            std::lock_guard<std::mutex> lock(m);
-            ok = fileSuccess; lp = localPath;
-            if (!fileSuccess) LOG_ERR("[ClipboardTransfer] file failed: %s", err.c_str());
-            done = true; cv.notify_one();
-          }
-      );
-
-      // Wait for this file to complete before starting next
-      std::unique_lock<std::mutex> lock(m);
-      cv.wait_for(lock, std::chrono::seconds(120), [&]{ return done; });
-
-      if (ok) paths.push_back(lp);
-      else allOk = false;
+      const auto result =
+          ClipboardTransferClient::downloadFile(sourceAddr, port, sessionId, file.path, destDir, keepExisting);
+      if (result.success) {
+        paths.push_back(result.localPath);
+      } else {
+        allOk = false;
+      }
     }
-
-    if (!destFolder.empty()) client->setDestinationFolder("");
-    m_pendingRequests--;
-    m_pendingCondition.notify_all();
     if (batchCallback) batchCallback(allOk, paths);
+    pending->done();
   }).detach();
 }
 
@@ -432,21 +408,20 @@ void ClipboardTransferThread::requestFiles(
 
 bool ClipboardTransferThread::hasPendingRequests() const
 {
-  return m_pendingRequests.load() > 0;
+  std::lock_guard<std::mutex> lock(m_pending->mutex);
+  return m_pending->count > 0;
 }
 
 bool ClipboardTransferThread::waitForPendingRequests(uint32_t timeoutMs)
 {
-  std::unique_lock<std::mutex> lock(m_pendingMutex);
-
+  const auto pending = m_pending;
+  std::unique_lock<std::mutex> lock(pending->mutex);
+  const auto idle = [&pending] { return pending->count == 0; };
   if (timeoutMs == 0) {
-    m_pendingCondition.wait(lock, [this] { return m_pendingRequests.load() == 0; });
+    pending->condition.wait(lock, idle);
     return true;
-  } else {
-    return m_pendingCondition.wait_for(lock, std::chrono::milliseconds(timeoutMs), [this] {
-      return m_pendingRequests.load() == 0;
-    });
   }
+  return pending->condition.wait_for(lock, std::chrono::milliseconds(timeoutMs), idle);
 }
 
 void ClipboardTransferThread::setPendingFilesForPaste(
@@ -499,52 +474,59 @@ std::vector<std::string> ClipboardTransferThread::requestFilesAndWait(const std:
   LOG_INFO("[ClipboardTransfer] requesting %zu files from %s:%u to '%s' (sessionId=%llu)",
            files.size(), sourceAddr.c_str(), sourcePort, destFolder.c_str(), sessionId);
 
-  // Use condition variable to wait for completion
-  auto completedPaths = std::make_shared<std::vector<std::string>>();
-  auto done = std::make_shared<std::atomic<bool>>(false);
-  auto success = std::make_shared<std::atomic<bool>>(false);
-  std::mutex waitMutex;
-  std::condition_variable waitCondition;
+  // The callback may fire after we stop waiting, so everything it touches is shared
+  struct WaitState
+  {
+    std::mutex mutex;
+    std::condition_variable condition;
+    bool done = false;
+    bool allOk = false;
+    std::vector<std::string> paths;
+  };
+  auto state = std::make_shared<WaitState>();
 
-  // Request files through the transfer thread, downloading directly to destFolder
   requestFiles(
       sourceAddr, sourcePort, sessionId, files,
-      [completedPaths, done, success, &waitCondition](bool transferSuccess, const std::vector<std::string> &paths) {
-        if (transferSuccess) {
-          *completedPaths = paths;
-          success->store(true);
+      [state](bool allOk, const std::vector<std::string> &paths) {
+        {
+          std::lock_guard<std::mutex> lock(state->mutex);
+          state->done = true;
+          state->allOk = allOk;
+          state->paths = paths;
         }
-        done->store(true);
-        waitCondition.notify_all();
+        state->condition.notify_all();
       },
       destFolder
   );
 
-  // Wait for completion
-  std::unique_lock<std::mutex> lock(waitMutex);
-  bool completed = waitCondition.wait_for(lock, std::chrono::milliseconds(timeoutMs), [done] { return done->load(); });
-
-  if (!completed) {
-    LOG_WARN("[ClipboardTransfer] timed out after %u ms waiting for transfer from %s:%u",
-             timeoutMs, sourceAddr.c_str(), sourcePort);
+  std::unique_lock<std::mutex> lock(state->mutex);
+  const auto finished = [&state] { return state->done; };
+  if (timeoutMs == 0) {
+    state->condition.wait(lock, finished);
+  } else if (!state->condition.wait_for(lock, std::chrono::milliseconds(timeoutMs), finished)) {
+    LOG_WARN(
+        "[ClipboardTransfer] timed out after %u ms waiting for transfer from %s:%u", timeoutMs, sourceAddr.c_str(),
+        sourcePort
+    );
     return {};
   }
 
-  if (!success->load()) {
-    LOG_ERR("[ClipboardTransfer] transfer from %s:%u FAILED", sourceAddr.c_str(), sourcePort);
-    return {};
+  // Hand back whatever arrived even if some entries failed, so those files are still usable
+  if (!state->allOk) {
+    LOG_WARN(
+        "[ClipboardTransfer] %zu of %zu item(s) from %s:%u failed", files.size() - state->paths.size(), files.size(),
+        sourceAddr.c_str(), sourcePort
+    );
   }
+  const auto paths = state->paths;
+  lock.unlock();
 
-  LOG_INFO("[ClipboardTransfer] transfer complete, %zu file(s) received", completedPaths->size());
-
-  // Store completed paths
+  LOG_INFO("[ClipboardTransfer] transfer complete, %zu item(s) received", paths.size());
   {
     std::lock_guard<std::mutex> filesLock(m_pendingFilesMutex);
-    m_completedFilePaths = *completedPaths;
+    m_completedFilePaths = paths;
   }
-
-  LOG_INFO("[ClipboardTransfer] file transfer complete, %zu files downloaded", completedPaths->size());
-  return *completedPaths;
+  return paths;
 }
 
 #ifdef _WIN32

@@ -99,23 +99,14 @@ Client::Client(
   // When user right-clicks in Finder and selects "Deskflow Paste",
   // the extension posts a notification with the target directory.
   OSXPasteboardBridge::startListening([this](const std::string &targetDir) {
-    // File log so we can diagnose without GUI log access
-    auto plog = [](const char *msg) {
-      FILE *f = fopen("/tmp/autodeskflow-paste.log", "a");
-      if (f) { fprintf(f, "%s\n", msg); fclose(f); }
-    };
-    plog(("[FinderPaste] callback: target=" + targetDir).c_str());
     LOG_INFO("[FinderPaste] paste request received, target: %s", targetDir.c_str());
 
     if (!m_clipboardTransferThread || !m_clipboardTransferThread->isRunning()) {
-      plog("[FinderPaste] FAIL: thread null or not running");
       LOG_WARN("[FinderPaste] clipboard transfer thread not available");
       return;
     }
 
-    bool hasPending = m_clipboardTransferThread->hasPendingFilesForPaste();
-    plog(("[FinderPaste] hasPendingFilesForPaste=" + std::string(hasPending ? "true" : "false")).c_str());
-    if (!hasPending) {
+    if (!m_clipboardTransferThread->hasPendingFilesForPaste()) {
       LOG_WARN("[FinderPaste] no pending files in transfer thread");
       return;
     }
@@ -129,18 +120,29 @@ Client::Client(
     // Run transfer in background thread so socket server returns "OK" immediately
     // (prevents mouse lag from blocking the socket server thread)
     ClipboardTransferThread *transferThread = m_clipboardTransferThread;
-    std::thread([this, transferThread, targetDir]() {
-      std::vector<std::string> paths =
-          transferThread->requestFilesAndWait(targetDir, 300000); // 5 min timeout
+    std::thread([transferThread, targetDir]() {
+      // No overall deadline: each download ends on its own once the peer goes quiet
+      const auto paths = transferThread->requestFilesAndWait(targetDir, 0);
 
-      if (!paths.empty()) {
-        LOG_INFO("[FinderPaste] %zu file(s) transferred to %s", paths.size(), targetDir.c_str());
+      // Only top-level items belong on the pasteboard; nested ones already sit inside their folder
+      std::string base = targetDir;
+      while (base.size() > 1 && base.back() == '/')
+        base.pop_back();
+      std::vector<std::string> topLevel;
+      for (const auto &p : paths) {
+        const auto slash = p.find_last_of('/');
+        if (slash == base.size() && p.compare(0, slash, base) == 0)
+          topLevel.push_back(p);
+      }
+
+      if (!topLevel.empty()) {
+        LOG_INFO("[FinderPaste] %zu item(s) transferred to %s", topLevel.size(), targetDir.c_str());
         // NSPasteboard is thread-safe on modern macOS; use background queue
         // (Qt blocks GCD main_queue dispatch in its event loop)
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
           std::vector<const char *> cPaths;
-          cPaths.reserve(paths.size());
-          for (const auto &p : paths) cPaths.push_back(p.c_str());
+          cPaths.reserve(topLevel.size());
+          for (const auto &p : topLevel) cPaths.push_back(p.c_str());
           updatePasteboardWithFiles(cPaths.data(), static_cast<int>(cPaths.size()));
         });
       } else {

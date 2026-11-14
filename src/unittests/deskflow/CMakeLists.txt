@@ -46,6 +46,14 @@ create_test(
 )
 
 create_test(
+  NAME ClipboardTransferClientTests
+  DEPENDS app
+  LIBS arch base io mt net ${extra_libs}
+  SOURCE ClipboardTransferClientTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/deskflow"
+)
+
+create_test(
   NAME KeyboardLayoutManagerTests
   DEPENDS app
   LIBS arch base ${extra_libs}
