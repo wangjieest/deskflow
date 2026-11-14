@@ -25,6 +25,7 @@ private Q_SLOTS:
   void truncatedTransferRemovesPartialFile();
   void moreDataThanAnnouncedFails();
   void plantedSymlinkIsNotFollowed();
+  void copyWithoutFileListDropsOnlyFiles();
   void sourceErrorIsReported();
 
 private:

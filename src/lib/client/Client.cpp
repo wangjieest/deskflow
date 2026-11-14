@@ -367,6 +367,17 @@ void Client::setClipboard(ClipboardID id, const IClipboard *clipboard)
   // Open clipboard before checking formats (it may have been closed after unmarshall)
   clipboard->open(0);
 
+  if (clipboard->has(IClipboard::Format::FileList) && !isFileTransferEnabled()) {
+    LOG_INFO("file transfer is turned off, ignoring files from the server");
+    Clipboard withoutFiles;
+    copyWithoutFileList(*clipboard, withoutFiles);
+    clipboard->close();
+    m_computer->setClipboard(id, &withoutFiles);
+    m_ownClipboard[id] = false;
+    m_sentClipboard[id] = false;
+    return;
+  }
+
   // Check if clipboard contains file list that needs to be transferred
   if (clipboard->has(IClipboard::Format::FileList)) {
     std::string fileListJson = clipboard->get(IClipboard::Format::FileList);
@@ -645,6 +656,14 @@ void Client::sendClipboard(ClipboardID id)
       clipboard.open(clipboard.getTime());
       bool hasFileList = clipboard.has(IClipboard::Format::FileList);
       LOG_INFO("[Client] sendClipboard: hasFileList=%d", hasFileList);
+      if (hasFileList && !isFileTransferEnabled()) {
+        LOG_INFO("[Client] file transfer is turned off, not offering copied files");
+        Clipboard withoutFiles;
+        copyWithoutFileList(clipboard, withoutFiles);
+        clipboard.close();
+        m_server->onClipboardChanged(id, &withoutFiles);
+        return;
+      }
       if (hasFileList) {
         // Start file transfer server and inject source info into FileList
         std::string fileListData = clipboard.get(IClipboard::Format::FileList);

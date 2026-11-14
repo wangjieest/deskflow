@@ -8,6 +8,8 @@
 #include "server/PrimaryClient.h"
 
 #include "base/Log.h"
+#include "deskflow/Clipboard.h"
+#include "deskflow/ClipboardMeta.h"
 #include "deskflow/Computer.h"
 //
 // PrimaryClient
@@ -124,6 +126,18 @@ void PrimaryClient::setClipboard(ClipboardID id, const IClipboard *clipboard)
 
     // set clipboard
     LOG_DEBUG("PrimaryClient: setting clipboard %d on primary computer", id);
+    if (!isFileTransferEnabled() && clipboard->open(0)) {
+      const bool hasFiles = clipboard->has(IClipboard::Format::FileList);
+      Clipboard withoutFiles;
+      if (hasFiles)
+        copyWithoutFileList(*clipboard, withoutFiles);
+      clipboard->close();
+      if (hasFiles) {
+        LOG_INFO("file transfer is turned off, ignoring files from a remote computer");
+        m_computer->setClipboard(id, &withoutFiles);
+        return;
+      }
+    }
     m_computer->setClipboard(id, clipboard);
   } else {
     LOG_DEBUG("PrimaryClient: skipping clipboard %d (not dirty)", id);

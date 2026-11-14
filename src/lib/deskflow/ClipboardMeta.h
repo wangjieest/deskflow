@@ -13,6 +13,14 @@
 #include <string>
 #include <vector>
 
+class Clipboard;
+
+//! False when the user turned off "Enable file transfer via clipboard" on this computer
+bool isFileTransferEnabled();
+
+//! Fill dst with every format of src except FileList; src must already be open
+void copyWithoutFileList(const IClipboard &src, Clipboard &dst);
+
 //! Clipboard metadata for deferred/lazy transfer
 /*!
 This structure contains metadata about clipboard content, allowing clients

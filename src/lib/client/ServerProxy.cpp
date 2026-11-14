@@ -648,6 +648,12 @@ void ServerProxy::setClipboardMeta()
   // Parse metadata
   ClipboardMeta meta = ClipboardMeta::deserialize(metaJson);
 
+  if (meta.contentType == static_cast<uint32_t>(IClipboard::Format::FileList) && !isFileTransferEnabled()) {
+    LOG_INFO("file transfer is turned off, ignoring %u item(s) offered by the server", meta.itemCount);
+    cleanupDeferredClipboards(id);
+    return;
+  }
+
   // Structured log for GUI to parse and display clipboard summary
   const char *typeStr = "data";
   if (meta.contentType == static_cast<uint32_t>(IClipboard::Format::FileList))

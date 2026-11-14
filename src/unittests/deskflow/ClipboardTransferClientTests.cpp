@@ -6,6 +6,8 @@
 
 #include "ClipboardTransferClientTests.h"
 
+#include "deskflow/Clipboard.h"
+#include "deskflow/ClipboardMeta.h"
 #include "deskflow/ClipboardTransferClient.h"
 #include "deskflow/FileTransfer.h"
 
@@ -236,6 +238,25 @@ void ClipboardTransferClientTests::plantedSymlinkIsNotFollowed()
   QCOMPARE(readFile(victim), QByteArray("keep"));
   QCOMPARE(readFile(m_dir->filePath("a.txt")), QByteArray("new"));
 #endif
+}
+
+void ClipboardTransferClientTests::copyWithoutFileListDropsOnlyFiles()
+{
+  Clipboard src;
+  src.open(0);
+  src.empty();
+  src.add(IClipboard::Format::Text, "note");
+  src.add(IClipboard::Format::FileList, R"([{"path":"/secret/a.txt"}])");
+
+  Clipboard dst;
+  copyWithoutFileList(src, dst);
+  src.close();
+
+  QVERIFY(dst.open(0));
+  QVERIFY(dst.has(IClipboard::Format::Text));
+  QCOMPARE(QString::fromStdString(dst.get(IClipboard::Format::Text)), QStringLiteral("note"));
+  QVERIFY(!dst.has(IClipboard::Format::FileList));
+  dst.close();
 }
 
 void ClipboardTransferClientTests::sourceErrorIsReported()

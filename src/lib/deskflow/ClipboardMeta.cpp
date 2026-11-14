@@ -7,8 +7,27 @@
 #include "deskflow/ClipboardMeta.h"
 
 #include "base/Log.h"
+#include "common/Settings.h"
+#include "deskflow/Clipboard.h"
 
 #include <sstream>
+
+bool isFileTransferEnabled()
+{
+  return Settings::value(Settings::Core::EnableFileTransfer).toBool();
+}
+
+void copyWithoutFileList(const IClipboard &src, Clipboard &dst)
+{
+  dst.open(0);
+  dst.empty();
+  for (int i = 0; i < static_cast<int>(IClipboard::Format::TotalFormats); ++i) {
+    const auto format = static_cast<IClipboard::Format>(i);
+    if (format != IClipboard::Format::FileList && src.has(format))
+      dst.add(format, src.get(format));
+  }
+  dst.close();
+}
 
 namespace {
 

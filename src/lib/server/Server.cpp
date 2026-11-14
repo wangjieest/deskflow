@@ -1711,6 +1711,19 @@ void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, u
   // get data
   sender->getClipboard(id, &clipboard.m_clipboard);
 
+  if (sender == m_primaryClient && !isFileTransferEnabled()) {
+    clipboard.m_clipboard.open(0);
+    const bool hasFiles = clipboard.m_clipboard.has(IClipboard::Format::FileList);
+    Clipboard withoutFiles;
+    if (hasFiles)
+      copyWithoutFileList(clipboard.m_clipboard, withoutFiles);
+    clipboard.m_clipboard.close();
+    if (hasFiles) {
+      LOG_INFO("file transfer is turned off, not offering files copied on this computer");
+      IClipboard::copy(&clipboard.m_clipboard, &withoutFiles);
+    }
+  }
+
   std::string data = clipboard.m_clipboard.marshall();
 
   // ignore if data hasn't changed
@@ -2759,6 +2772,11 @@ void Server::setListener(ClientListener *p)
 #ifdef _WIN32
 void Server::setupDelayedRenderingForPrimary(ClipboardInfo &clipboard, ClipboardID id)
 {
+  if (!isFileTransferEnabled()) {
+    LOG_INFO("file transfer is turned off, not offering remote files for paste on this computer");
+    return;
+  }
+
   // Ensure ClipboardTransferThread is running
   if (!m_clipboardTransferThread) {
     m_clipboardTransferThread = new ClipboardTransferThread();
