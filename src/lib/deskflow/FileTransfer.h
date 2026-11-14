@@ -93,9 +93,10 @@ public:
 
   static bool parseStartChunkEx(const std::string &data, std::string &fileName,
                                  std::string &relativePath, uint64_t &fileSize, bool &isDir);
+  //! @param offset Non-zero when resuming: data starts at this byte (echoed so the receiver knows it was honoured)
   static std::string createStartChunkEx(uint32_t requestId, const std::string &fileName,
                                          const std::string &relativePath, uint64_t fileSize,
-                                         bool isDir);
+                                         bool isDir, uint64_t offset = 0);
 
   static void setFileRequestCallback(const FileRequestCallback &callback);
   static const FileRequestCallback &getFileRequestCallback();

@@ -8,6 +8,7 @@
 
 #include "deskflow/FileTransfer.h"
 
+#include <chrono>
 #include <functional>
 #include <string>
 
@@ -18,6 +19,18 @@
  * @param errorMessage Error message if failed
  */
 using FileTransferCallback = std::function<void(bool success, const std::string &localPath, const std::string &errorMessage)>;
+
+//! Tuning for ClipboardTransferClient::downloadFile
+struct FileDownloadOptions
+{
+  //! The source is dropped when less than minBytesPerWindow arrives within any stallWindow
+  std::chrono::milliseconds stallWindow{60000};
+  uint64_t minBytesPerWindow = 64 * 1024;
+  //! Total attempts; after a dropped connection the next attempt resumes from the partial file
+  int maxAttempts = 3;
+  //! Wait before attempt n is (n - 1) * retryDelay
+  std::chrono::milliseconds retryDelay{1000};
+};
 
 /**
  * @brief Client-side clipboard transfer connection
@@ -55,6 +68,8 @@ public:
     std::string error;
   };
 
+  using DownloadOptions = FileDownloadOptions;
+
   /**
    * @brief Download one entry into destDir, blocking the calling thread
    *
@@ -65,7 +80,7 @@ public:
    */
   static DownloadResult downloadFile(
       const std::string &sourceAddr, uint16_t port, uint64_t sessionId, const std::string &remotePath,
-      const std::string &destDir, bool keepExisting
+      const std::string &destDir, bool keepExisting, const DownloadOptions &options = DownloadOptions{}
   );
 
   /**

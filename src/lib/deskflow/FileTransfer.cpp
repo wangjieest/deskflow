@@ -376,7 +376,7 @@ bool FileTransfer::parseStartChunkEx(
 
 std::string FileTransfer::createStartChunkEx(
     uint32_t requestId, const std::string &fileName,
-    const std::string &relativePath, uint64_t fileSize, bool isDir)
+    const std::string &relativePath, uint64_t fileSize, bool isDir, uint64_t offset)
 {
   auto escapeJson = [](const std::string &s) -> std::string {
     std::string result;
@@ -399,6 +399,8 @@ std::string FileTransfer::createStartChunkEx(
   json << "\"relativePath\":\"" << escapeJson(relativePath) << "\",";
   json << "\"size\":" << fileSize << ",";
   json << "\"isDir\":" << (isDir ? "true" : "false");
+  if (offset > 0)
+    json << ",\"offset\":" << offset;
   json << "}";
 
   return createFileChunk(requestId, FileChunkType::Start, json.str());

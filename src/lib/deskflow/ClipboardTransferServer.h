@@ -130,8 +130,13 @@ private:
   void handleClientData(IDataSocket *socket);
   void handleClientDisconnected(IDataSocket *socket);
 
-  void processFileRequest(IDataSocket *socket, uint32_t requestId, uint64_t sessionId, const std::string &filePath);
-  bool sendFile(deskflow::IStream *stream, uint32_t requestId, const std::string &filePath, const std::string &relativePath);
+  void processFileRequest(
+      IDataSocket *socket, uint32_t requestId, uint64_t sessionId, const std::string &filePath, uint64_t offset
+  );
+  bool sendFile(
+      deskflow::IStream *stream, uint32_t requestId, const std::string &filePath, const std::string &relativePath,
+      uint64_t offset
+  );
   void sendDirectory(deskflow::IStream *stream, uint32_t requestId, const std::string &relativePath);
   void sendError(deskflow::IStream *stream, uint32_t requestId, const std::string &message);
 

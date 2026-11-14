@@ -17,6 +17,7 @@
 #include "net/NetworkAddress.h"
 #include "net/SocketException.h"
 
+#include <cstring>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -352,10 +353,25 @@ void ClipboardTransferServer::handleClientData(IDataSocket *socket)
       }
     }
 
-    LOG_INFO("[ClipboardTransferServer] request: id=%u, session=%llu, path=%s", requestId, sessionId, filePath.c_str());
+    // Optional resume trailer: "OFS1" + offset(8). If it is missing or split we simply send from the start;
+    // the client only appends when the Start chunk echoes the offset.
+    uint64_t offset = 0;
+    uint8_t tag[4];
+    if (socket->read(tag, 4) == 4 && std::memcmp(tag, "OFS1", 4) == 0) {
+      uint8_t offsetBuf[8];
+      if (socket->read(offsetBuf, 8) == 8) {
+        for (const uint8_t b : offsetBuf)
+          offset = (offset << 8) | b;
+      }
+    }
+
+    LOG_INFO(
+        "[ClipboardTransferServer] request: id=%u, session=%llu, path=%s, offset=%llu", requestId, sessionId,
+        filePath.c_str(), offset
+    );
 
     conn.sessionId = sessionId;
-    processFileRequest(socket, requestId, sessionId, filePath);
+    processFileRequest(socket, requestId, sessionId, filePath, offset);
 
   } catch (const std::exception &e) {
     LOG_ERR("[ClipboardTransferServer] error reading request: %s", e.what());
@@ -381,7 +397,7 @@ void ClipboardTransferServer::handleClientDisconnected(IDataSocket *socket)
 }
 
 void ClipboardTransferServer::processFileRequest(
-    IDataSocket *socket, uint32_t requestId, uint64_t sessionId, const std::string &filePath
+    IDataSocket *socket, uint32_t requestId, uint64_t sessionId, const std::string &filePath, uint64_t offset
 )
 {
   auto connIt = m_connections.find(socket);
@@ -401,12 +417,13 @@ void ClipboardTransferServer::processFileRequest(
   if (fileInfo->isDir) {
     sendDirectory(stream, requestId, fileInfo->relativePath);
   } else {
-    sendFile(stream, requestId, fileInfo->path, fileInfo->relativePath);
+    sendFile(stream, requestId, fileInfo->path, fileInfo->relativePath, offset);
   }
 }
 
 bool ClipboardTransferServer::sendFile(
-    deskflow::IStream *stream, uint32_t requestId, const std::string &filePath, const std::string &relativePath
+    deskflow::IStream *stream, uint32_t requestId, const std::string &filePath, const std::string &relativePath,
+    uint64_t offset
 )
 {
   LOG_INFO("[ClipboardTransferServer] sending file: %s (requestId=%u)", filePath.c_str(), requestId);
@@ -419,7 +436,9 @@ bool ClipboardTransferServer::sendFile(
   }
 
   uint64_t fileSize = static_cast<uint64_t>(file.tellg());
-  file.seekg(0, std::ios::beg);
+  if (offset > fileSize)
+    offset = 0;
+  file.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
 
   std::string fileName = filePath;
   size_t lastSlash = filePath.find_last_of("/\\");
@@ -428,17 +447,20 @@ bool ClipboardTransferServer::sendFile(
   }
 
   // Send start chunk
-  std::string startData = FileTransfer::createStartChunkEx(requestId, fileName, relativePath, fileSize, false);
+  std::string startData =
+      FileTransfer::createStartChunkEx(requestId, fileName, relativePath, fileSize, false, offset);
   ProtocolUtil::writef(stream, kMsgDFileChunk, requestId, static_cast<uint8_t>(FileChunkType::Start), &startData);
 
-  LOG_DEBUG("[ClipboardTransferServer] sent start chunk: name=%s, size=%llu", fileName.c_str(), fileSize);
+  LOG_DEBUG(
+      "[ClipboardTransferServer] sent start chunk: name=%s, size=%llu, offset=%llu", fileName.c_str(), fileSize, offset
+  );
 
   // Send data chunks
   const size_t chunkSize = 32768;
   std::vector<char> buffer(chunkSize);
   uint64_t totalSent = 0;
 
-  while (file.good() && totalSent < fileSize) {
+  while (file.good() && offset + totalSent < fileSize) {
     file.read(buffer.data(), chunkSize);
     size_t bytesRead = static_cast<size_t>(file.gcount());
 

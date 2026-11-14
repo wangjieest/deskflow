@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "arch/Arch.h"
 #include "base/Log.h"
 
 #include <QTemporaryDir>
@@ -15,6 +16,7 @@ class ClipboardTransferClientTests : public QObject
 {
   Q_OBJECT
 private Q_SLOTS:
+  void initTestCase();
   void init();
   void nestedFileKeepsFolderStructure();
   void lengthPrefixedPacketsAreAccepted();
@@ -29,9 +31,15 @@ private Q_SLOTS:
   void refusedConnectionFailsFast();
   void relayTempPathsStayInTempFolder();
   void appendChunkRefusesMoreThanAnnounced();
+  void resumesAfterDroppedConnection();
+  void restartsWhenSourceIgnoresOffset();
+  void stalledSourceIsDropped();
+  void slowButSteadySourceIsKept();
+  void realServerServesAndResumes();
   void sourceErrorIsReported();
 
 private:
+  Arch m_arch;
   Log m_log;
   std::unique_ptr<QTemporaryDir> m_dir;
 };
