@@ -398,7 +398,7 @@ void ArchMultithreadPosix::testCancelThread()
   ArchThreadImpl *thread = nullptr;
   {
     std::scoped_lock lock{m_threadMutex};
-    thread = findNoRef(pthread_self());
+    thread = findNoRefOrInsert(pthread_self());
   }
 
   // Thread not managed by ArchMultithreadPosix (e.g., QThread)
@@ -419,7 +419,7 @@ bool ArchMultithreadPosix::wait(ArchThread target, double timeout)
   {
     std::scoped_lock lock{m_threadMutex};
     // find current thread
-    self = findNoRef(pthread_self());
+    self = findNoRefOrInsert(pthread_self());
     // ignore wait if trying to wait on ourself
     if (target == self) {
       return false;

@@ -15,9 +15,9 @@
 #include "common/PlatformInfo.h"
 #include "common/Settings.h"
 #include "deskflow/App.h"
+#include "deskflow/Computer.h"
+#include "deskflow/DisplayException.h"
 #include "deskflow/ProtocolTypes.h"
-#include "deskflow/Screen.h"
-#include "deskflow/ScreenException.h"
 #include "deskflow/ipc/CoreIpc.h"
 #include "net/SocketException.h"
 #include "net/SocketMultiplexer.h"
@@ -29,23 +29,23 @@
 #include "server/Server.h"
 #include "server/FileTransferListener.h"
 
-// must be before screen header includes
+// must be before computer header includes
 #include <QFileInfo>
 
 #if defined(Q_OS_WIN)
-#include "platform/MSWindowsScreen.h"
+#include "platform/MSWindowsComputer.h"
 #endif
 
 #if WINAPI_XWINDOWS
-#include "platform/XWindowsScreen.h"
+#include "platform/XWindowsComputer.h"
 #endif
 
 #if WINAPI_LIBEI
-#include "platform/EiScreen.h"
+#include "platform/EiComputer.h"
 #endif
 
-#if defined(Q_OS_MAC)
-#include "platform/OSXScreen.h"
+#if defined(Q_OS_MACOS)
+#include "platform/OSXComputer.h"
 #endif
 
 #include <fstream>
@@ -217,14 +217,14 @@ void ServerApp::closePrimaryClient(PrimaryClient *primaryClient)
   delete primaryClient;
 }
 
-void ServerApp::closeServerScreen(deskflow::Screen *screen)
+void ServerApp::closeServerComputer(deskflow::Computer *computer)
 {
-  if (screen != nullptr) {
+  if (computer != nullptr) {
     using enum EventTypes;
-    getEvents()->removeHandler(ScreenError, screen->getEventTarget());
-    getEvents()->removeHandler(ScreenSuspend, screen->getEventTarget());
-    getEvents()->removeHandler(ScreenResume, screen->getEventTarget());
-    delete screen;
+    getEvents()->removeHandler(ComputerError, computer->getEventTarget());
+    getEvents()->removeHandler(ComputerSuspend, computer->getEventTarget());
+    getEvents()->removeHandler(ComputerResume, computer->getEventTarget());
+    delete computer;
   }
 }
 
@@ -234,16 +234,16 @@ void ServerApp::cleanupServer()
   stopServer();
   if (m_serverState == Initialized) {
     closePrimaryClient(m_primaryClient);
-    closeServerScreen(m_serverScreen);
+    closeServerComputer(m_serverComputer);
     m_primaryClient = nullptr;
-    m_serverScreen = nullptr;
+    m_serverComputer = nullptr;
     m_serverState = Uninitialized;
   } else if (m_serverState == Initializing || m_serverState == InitializingToStart) {
     stopRetryTimer();
     m_serverState = Uninitialized;
   }
   assert(m_primaryClient == nullptr);
-  assert(m_serverScreen == nullptr);
+  assert(m_serverComputer == nullptr);
   assert(m_serverState == Uninitialized);
 }
 
@@ -301,46 +301,48 @@ bool ServerApp::initServer()
     return true;
   }
 
-  deskflow::Screen *serverScreen = nullptr;
+  deskflow::Computer *serverComputer = nullptr;
   PrimaryClient *primaryClient = nullptr;
   try {
     std::string name = m_config->getCanonicalName(m_name);
-    serverScreen = openServerScreen();
-    primaryClient = openPrimaryClient(name, serverScreen);
-    m_serverScreen = serverScreen;
+    serverComputer = openServerComputer();
+    primaryClient = openPrimaryClient(name, serverComputer);
+    m_serverComputer = serverComputer;
     m_primaryClient = primaryClient;
     m_serverState = Initialized;
     return true;
-  } catch (ScreenUnavailableException &e) {
-    LOG_WARN("primary screen unavailable: %s", e.what());
+  } catch (X11DisplayUnavailableException &e) {
+    LOG_WARN("primary computer unavailable: %s", e.what());
     closePrimaryClient(primaryClient);
-    closeServerScreen(serverScreen);
-  } catch (ScreenOpenFailureException &e) {
+    closeServerComputer(serverComputer);
+  } catch (DisplayOpenFailureException &e) {
     LOG_CRIT("failed to start server: %s", e.what());
     closePrimaryClient(primaryClient);
-    closeServerScreen(serverScreen);
+    closeServerComputer(serverComputer);
     return false;
   } catch (BaseException &e) {
     LOG_CRIT("failed to start server: %s", e.what());
     closePrimaryClient(primaryClient);
-    closeServerScreen(serverScreen);
+    closeServerComputer(serverComputer);
     return false;
   }
 
   return false;
 }
 
-deskflow::Screen *ServerApp::openServerScreen()
+deskflow::Computer *ServerApp::openServerComputer()
 {
-  deskflow::Screen *screen = createScreen();
-  getEvents()->addHandler(EventTypes::ScreenError, screen->getEventTarget(), [this](const auto &) {
-    handleScreenError();
+  deskflow::Computer *computer = createComputer();
+  getEvents()->addHandler(EventTypes::ComputerError, computer->getEventTarget(), [this](const auto &) {
+    handleComputerError();
   });
-  getEvents()->addHandler(EventTypes::ScreenSuspend, screen->getEventTarget(), [this](const auto &) {
+  getEvents()->addHandler(EventTypes::ComputerSuspend, computer->getEventTarget(), [this](const auto &) {
     handleSuspend();
   });
-  getEvents()->addHandler(EventTypes::ScreenResume, screen->getEventTarget(), [this](const auto &) { handleResume(); });
-  return screen;
+  getEvents()->addHandler(EventTypes::ComputerResume, computer->getEventTarget(), [this](const auto &) {
+    handleResume();
+  });
+  return computer;
 }
 
 bool ServerApp::startServer()
@@ -405,37 +407,37 @@ bool ServerApp::startServer()
   return false;
 }
 
-deskflow::Screen *ServerApp::createScreen()
+deskflow::Computer *ServerApp::createComputer()
 {
 #if defined(Q_OS_WIN)
-  return new deskflow::Screen(
-      new MSWindowsScreen(true, Settings::value(Settings::Core::UseHooks).toBool(), getEvents()), getEvents()
+  return new deskflow::Computer(
+      new MSWindowsComputer(true, Settings::value(Settings::Core::UseHooks).toBool(), getEvents()), getEvents()
   );
-#elif defined(Q_OS_MAC)
-  return new deskflow::Screen(new OSXScreen(getEvents(), true), getEvents());
+#elif defined(Q_OS_MACOS)
+  return new deskflow::Computer(new OSXComputer(getEvents(), true), getEvents());
 #else
   if (deskflow::platform::isWayland()) {
 #if WINAPI_LIBEI
-    LOG_INFO("using ei screen for wayland");
-    return new deskflow::Screen(new deskflow::EiScreen(true, getEvents(), true), getEvents());
+    LOG_INFO("detected wayland platform");
+    return new deskflow::Computer(new deskflow::EiComputer(true, getEvents(), true), getEvents());
 #else
     throw XNoEiSupport();
 #endif
   }
 #if WINAPI_XWINDOWS
-  LOG_INFO("using legacy x windows screen");
-  return new deskflow::Screen(
-      new XWindowsScreen(qPrintable(Settings::value(Settings::Core::Display).toString()), true, getEvents()),
+  LOG_INFO("detected X11 platform");
+  return new deskflow::Computer(
+      new XWindowsComputer(qPrintable(Settings::value(Settings::Core::Display).toString()), true, getEvents()),
       getEvents()
   );
 #endif
 #endif // end os check
 }
 
-PrimaryClient *ServerApp::openPrimaryClient(const std::string &name, deskflow::Screen *screen)
+PrimaryClient *ServerApp::openPrimaryClient(const std::string &name, deskflow::Computer *computer)
 {
-  LOG_VERBOSE("creating primary screen");
-  return new PrimaryClient(name, screen);
+  LOG_VERBOSE("creating primary computer");
+  return new PrimaryClient(name, computer);
 }
 
 void ServerApp::handleSuspend()
@@ -479,9 +481,11 @@ ClientListener *ServerApp::openClientListener(const NetworkAddress &address)
 
 Server *ServerApp::openServer(ServerConfig &config, PrimaryClient *primaryClient)
 {
-  auto *server = new Server(config, primaryClient, m_serverScreen, getEvents());
+  auto *server = new Server(config, primaryClient, m_serverComputer, getEvents());
   try {
-    getEvents()->addHandler(EventTypes::ServerScreenSwitched, server, [this](const auto &) { handleScreenSwitched(); });
+    getEvents()->addHandler(EventTypes::ServerComputerSwitched, server, [this](const auto &) {
+      handleComputerSwitched();
+    });
 
   } catch (std::bad_alloc &ba) {
     delete server;
@@ -491,7 +495,7 @@ Server *ServerApp::openServer(ServerConfig &config, PrimaryClient *primaryClient
   return server;
 }
 
-void ServerApp::handleScreenSwitched() const
+void ServerApp::handleComputerSwitched() const
 {
   // do nothing
 }
@@ -512,10 +516,10 @@ int ServerApp::mainLoop()
   // on unix because threads evaporate across a fork().
   setSocketMultiplexer(std::make_unique<SocketMultiplexer>());
 
-  // if configuration has no screens then add this system
+  // if configuration has no computers then add this system
   // as the default
   if (m_config->begin() == m_config->end()) {
-    m_config->addScreen(m_name);
+    m_config->addComputer(m_name);
   }
 
   // set the contact address, if provided, in the config.
@@ -527,18 +531,18 @@ int ServerApp::mainLoop()
     m_config->setDeskflowAddress(NetworkAddress(kDefaultPort));
   }
 
-  // canonicalize the primary screen name
+  // canonicalize the primary computer name
   if (std::string primaryName = m_config->getCanonicalName(m_name); primaryName.empty()) {
-    LOG_CRIT("unknown screen name `%s'", m_name.c_str());
+    LOG_CRIT("unknown computer name `%s'", m_name.c_str());
     return s_exitFailed;
   }
 
   // start server, etc
   try {
-    appUtil().startNode();
+    startNode();
   } catch (...) {
     // a fatal startup failure exits by throwing, skipping the cleanup below;
-    // tear down here so the screen's worker threads don't outlive the app.
+    // tear down here so the computer's worker threads don't outlive the app.
     cleanupServer();
     throw;
   }

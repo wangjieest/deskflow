@@ -8,7 +8,7 @@
 #include "platform/MSWindowsHook.h"
 #include "base/DirectionTypes.h"
 #include "base/Log.h"
-#include "deskflow/ScreenException.h"
+#include "deskflow/DisplayException.h"
 
 #include <cstring>
 #include <mutex>
@@ -28,15 +28,17 @@ static bool g_screenSaver = false;
 static EHookMode g_mode = kHOOK_DISABLE;
 static uint32_t g_zoneSides = 0;
 static int32_t g_zoneSize = 0;
-static int32_t g_xScreen = 0;
-static int32_t g_yScreen = 0;
-static int32_t g_wScreen = 0;
-static int32_t g_hScreen = 0;
+static int32_t g_xComputer = 0;
+static int32_t g_yComputer = 0;
+static int32_t g_wComputer = 0;
+static int32_t g_hComputer = 0;
 static WPARAM g_deadVirtKey = 0;
 static WPARAM g_deadRelease = 0;
 static LPARAM g_deadLParam = 0;
-static BYTE g_deadKeyState[256] = {0};
-static BYTE g_keyState[256] = {0};
+static BYTE g_deadKeyState[MSWindowsHook::kVirtualKeyCount] = {0};
+static BYTE g_keyState[MSWindowsHook::kVirtualKeyCount] = {0};
+static WCHAR g_lastChars[MSWindowsHook::kVirtualKeyCount] = {0};
+static BYTE g_lastNoAltGr[MSWindowsHook::kVirtualKeyCount] = {0};
 static bool g_keyStateValid = false;
 static std::mutex g_keyStateMutex;
 static DWORD g_hookThread = 0;
@@ -64,7 +66,7 @@ void MSWindowsHook::loadLibrary()
   if (init(GetCurrentThreadId()) == 0) {
     LOG_ERR("failed to init %s.dll, another program may be using it", g_name);
     LOG_INFO("restarting your computer may solve this error");
-    throw ScreenOpenFailureException();
+    throw DisplayOpenFailureException();
   }
 }
 
@@ -102,10 +104,10 @@ int MSWindowsHook::init(DWORD threadID)
   g_mode = kHOOK_DISABLE;
   g_zoneSides = 0;
   g_zoneSize = 0;
-  g_xScreen = 0;
-  g_yScreen = 0;
-  g_wScreen = 0;
-  g_hScreen = 0;
+  g_xComputer = 0;
+  g_yComputer = 0;
+  g_wComputer = 0;
+  g_hComputer = 0;
 
   return 1;
 }
@@ -132,10 +134,10 @@ uint32_t MSWindowsHook::getSides()
 void MSWindowsHook::setZone(int32_t x, int32_t y, int32_t w, int32_t h, int32_t jumpZoneSize)
 {
   g_zoneSize = jumpZoneSize;
-  g_xScreen = x;
-  g_yScreen = y;
-  g_wScreen = w;
-  g_hScreen = h;
+  g_xComputer = x;
+  g_yComputer = y;
+  g_wComputer = w;
+  g_hComputer = h;
 }
 
 void MSWindowsHook::setMode(EHookMode mode)
@@ -147,7 +149,7 @@ void MSWindowsHook::setMode(EHookMode mode)
   g_mode = mode;
 }
 
-bool MSWindowsHook::getPhysicalKeyState(BYTE keys[256])
+bool MSWindowsHook::getPhysicalKeyState(BYTE keys[MSWindowsHook::kVirtualKeyCount])
 {
   std::lock_guard<std::mutex> lock(g_keyStateMutex);
   if (g_keyStateValid) {
@@ -156,13 +158,13 @@ bool MSWindowsHook::getPhysicalKeyState(BYTE keys[256])
   return g_keyStateValid;
 }
 
-static void keyboardGetState(BYTE keys[256], DWORD vkCode, bool kf_up)
+static void keyboardGetState(BYTE keys[MSWindowsHook::kVirtualKeyCount], DWORD vkCode, bool kf_up)
 {
   // we have to use GetAsyncKeyState() rather than GetKeyState() because
   // we don't pass through most keys so the event synchronous state
   // doesn't get updated.  we do that because certain modifier keys have
   // side effects, like alt and the windows key.
-  if (vkCode < 0 || vkCode >= 256) {
+  if (vkCode < 0 || vkCode >= MSWindowsHook::kVirtualKeyCount) {
     return;
   }
 
@@ -182,14 +184,14 @@ static void keyboardGetState(BYTE keys[256], DWORD vkCode, bool kf_up)
     // In this case, update g_keyState to reflect what GetAsyncKeyState()
     // is telling us, just in case we have gotten out of sync
 
-    for (int i = 0; i < 256; ++i) {
+    for (int i = 0; i < MSWindowsHook::kVirtualKeyCount; ++i) {
       key = GetAsyncKeyState(i);
       g_keyState[i] = (BYTE)((key < 0) ? 0x80u : 0);
     }
   }
 
   // copy g_keyState to keys
-  for (int i = 0; i < 256; ++i) {
+  for (int i = 0; i < MSWindowsHook::kVirtualKeyCount; ++i) {
     keys[i] = g_keyState[i];
   }
 
@@ -221,6 +223,113 @@ static void setDeadKey(WCHAR wc[], int size, UINT flags)
       g_deadRelease = g_deadVirtKey;
     }
   }
+}
+
+static WPARAM mapKeyDown(
+    WPARAM wParam, LPARAM lParam, BYTE (&keys)[MSWindowsHook::kVirtualKeyCount], UINT control, UINT menu, UINT flags
+)
+{
+  DWORD vkCode = static_cast<DWORD>(wParam);
+
+  // map the key event to a character.  we have to put the dead
+  // key back first and this has the side effect of removing it.
+  WCHAR wc[] = {0, 0};
+  setDeadKey(wc, 2, flags);
+
+  UINT scanCode = ((lParam & 0x10ff0000u) >> 16);
+  int n = ToUnicode((UINT)wParam, scanCode, keys, wc, 2, flags);
+
+  // if mapping failed and ctrl and alt are pressed then try again
+  // with both not pressed.  this handles the case where ctrl and
+  // alt are being used as individual modifiers rather than AltGr.
+  // we note that's the case in the message sent back to deskflow
+  // because there's no simple way to deduce it after the fact.
+  // we have to put the dead key back first, if there was one.
+  bool noAltGr = false;
+  if (n == 0 && (control & 0x80) != 0 && (menu & 0x80) != 0) {
+    noAltGr = true;
+    PostThreadMessage(g_threadID, DESKFLOW_MSG_DEBUG, wParam | 0x05000000, lParam);
+    setDeadKey(wc, 2, flags);
+
+    BYTE keys2[MSWindowsHook::kVirtualKeyCount];
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); ++i) {
+      keys2[i] = keys[i];
+    }
+    keys2[VK_LCONTROL] = 0;
+    keys2[VK_RCONTROL] = 0;
+    keys2[VK_CONTROL] = 0;
+    keys2[VK_LMENU] = 0;
+    keys2[VK_RMENU] = 0;
+    keys2[VK_MENU] = 0;
+    n = ToUnicode((UINT)wParam, scanCode, keys2, wc, 2, flags);
+  }
+
+  PostThreadMessage(
+      g_threadID, DESKFLOW_MSG_DEBUG, (wc[0] & 0xffff) | ((wParam & 0xff) << 16) | ((n & 0xf) << 24) | 0x60000000,
+      lParam
+  );
+  WPARAM charAndVirtKey = 0;
+  bool clearDeadKey = false;
+  switch (n) {
+  default:
+    // key is a dead key
+    g_deadVirtKey = wParam;
+    g_deadLParam = lParam;
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); ++i) {
+      g_deadKeyState[i] = keys[i];
+    }
+    break;
+
+  case 0:
+    // key doesn't map to a character.  this can happen if
+    // non-character keys are pressed after a dead key.
+    charAndVirtKey = makeKeyMsg((UINT)wParam, 0, noAltGr);
+    if (vkCode < MSWindowsHook::kVirtualKeyCount) {
+      g_lastChars[vkCode] = 0;
+      g_lastNoAltGr[vkCode] = 0;
+    }
+    break;
+
+  case 1:
+    // key maps to a character composed with dead key
+    charAndVirtKey = makeKeyMsg((UINT)wParam, wc[0], noAltGr);
+    clearDeadKey = true;
+
+    // the dead key is cleared below, so its release would otherwise go through as a normal key-up
+    if (g_deadVirtKey != 0) {
+      g_deadRelease = g_deadVirtKey;
+    }
+    if (vkCode < MSWindowsHook::kVirtualKeyCount) {
+      g_lastChars[vkCode] = wc[0];
+      g_lastNoAltGr[vkCode] = noAltGr ? 1 : 0;
+    }
+    break;
+
+  case 2: {
+    // previous dead key not composed.  send a fake key press
+    // and release for the dead key to our window.
+    WPARAM deadCharAndVirtKey = makeKeyMsg((UINT)g_deadVirtKey, wc[0], noAltGr);
+    PostThreadMessage(g_threadID, DESKFLOW_MSG_KEY, deadCharAndVirtKey, g_deadLParam & 0x7fffffffu);
+    PostThreadMessage(g_threadID, DESKFLOW_MSG_KEY, deadCharAndVirtKey, g_deadLParam | 0x80000000u);
+
+    // use uncomposed character
+    charAndVirtKey = makeKeyMsg((UINT)wParam, wc[1], noAltGr);
+    clearDeadKey = true;
+    if (vkCode < MSWindowsHook::kVirtualKeyCount) {
+      g_lastChars[vkCode] = wc[1];
+      g_lastNoAltGr[vkCode] = noAltGr ? 1 : 0;
+    }
+    break;
+  }
+  }
+
+  // clear out old dead key state
+  if (clearDeadKey) {
+    g_deadVirtKey = 0;
+    g_deadLParam = 0;
+  }
+
+  return charAndVirtKey;
 }
 
 static bool keyboardHookHandler(WPARAM wParam, LPARAM lParam)
@@ -258,7 +367,7 @@ static bool keyboardHookHandler(WPARAM wParam, LPARAM lParam)
   PostThreadMessage(g_threadID, DESKFLOW_MSG_DEBUG, wParam, lParam);
 
   // we need the keyboard state for ToAscii()
-  BYTE keys[256];
+  BYTE keys[MSWindowsHook::kVirtualKeyCount];
   keyboardGetState(keys, vkCode, kf_up);
 
   // Update the physical state before ignoring a dead key release so it cannot remain down in the resync snapshot.
@@ -296,9 +405,9 @@ static bool keyboardHookHandler(WPARAM wParam, LPARAM lParam)
   if ((menu & 0x80) != 0)
     flags |= 1;
 
-  // if we're on the server screen then just pass numpad keys with alt
+  // if we're on the server computer then just pass numpad keys with alt
   // key down as-is.  we won't pick up the resulting character but the
-  // local app will.  if on a client screen then grab keys as usual;
+  // local app will.  if on a client computer then grab keys as usual;
   // if the client is a windows system it'll synthesize the expected
   // character.  if not then it'll probably just do nothing.
   if (g_mode != kHOOK_RELAY_EVENTS) {
@@ -309,101 +418,22 @@ static bool keyboardHookHandler(WPARAM wParam, LPARAM lParam)
     if (menu && (sc >= 0x47u && sc <= 0x52u && sc != 0x4au && sc != 0x4eu)) {
       return false;
     }
+
+    // We're on the server's own screen: we're only watching for the
+    // cursor to reach a jump zone, we are NOT relaying keystrokes to a
+    // client, so we have no need for the composed character here.
+    PostThreadMessage(g_threadID, DESKFLOW_MSG_KEY, makeKeyMsg((UINT)wParam, 0, false), lParam);
+    return false;
   }
 
-  // map the key event to a character.  we have to put the dead
-  // key back first and this has the side effect of removing it.
-  WCHAR wc[] = {0, 0};
-  setDeadKey(wc, 2, flags);
-
-  UINT scanCode = ((lParam & 0x10ff0000u) >> 16);
-  int n = ToUnicode((UINT)wParam, scanCode, keys, wc, 2, flags);
-
-  // if mapping failed and ctrl and alt are pressed then try again
-  // with both not pressed.  this handles the case where ctrl and
-  // alt are being used as individual modifiers rather than AltGr.
-  // we note that's the case in the message sent back to deskflow
-  // because there's no simple way to deduce it after the fact.
-  // we have to put the dead key back first, if there was one.
-  bool noAltGr = false;
-  if (n == 0 && (control & 0x80) != 0 && (menu & 0x80) != 0) {
-    noAltGr = true;
-    PostThreadMessage(g_threadID, DESKFLOW_MSG_DEBUG, wParam | 0x05000000, lParam);
-    setDeadKey(wc, 2, flags);
-
-    BYTE keys2[256];
-    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); ++i) {
-      keys2[i] = keys[i];
-    }
-    keys2[VK_LCONTROL] = 0;
-    keys2[VK_RCONTROL] = 0;
-    keys2[VK_CONTROL] = 0;
-    keys2[VK_LMENU] = 0;
-    keys2[VK_RMENU] = 0;
-    keys2[VK_MENU] = 0;
-    n = ToUnicode((UINT)wParam, scanCode, keys2, wc, 2, flags);
-  }
-
-  PostThreadMessage(
-      g_threadID, DESKFLOW_MSG_DEBUG, (wc[0] & 0xffff) | ((wParam & 0xff) << 16) | ((n & 0xf) << 24) | 0x60000000,
-      lParam
-  );
+  // calling ToUnicode on key-up flushes a pending dead key as a spacing character
   WPARAM charAndVirtKey = 0;
-  bool clearDeadKey = false;
-  switch (n) {
-  default:
-    // key is a dead key
-
-    if (lParam & 0x80000000u)
-      // This handles the obscure situation where a key has been
-      // pressed which is both a dead key and a normal character
-      // depending on which modifiers have been pressed. We
-      // break here to prevent it from being considered a dead
-      // key.
-      break;
-
-    g_deadVirtKey = wParam;
-    g_deadLParam = lParam;
-    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); ++i) {
-      g_deadKeyState[i] = keys[i];
-    }
-    break;
-
-  case 0:
-    // key doesn't map to a character.  this can happen if
-    // non-character keys are pressed after a dead key.
-    charAndVirtKey = makeKeyMsg((UINT)wParam, 0, noAltGr);
-    break;
-
-  case 1:
-    // key maps to a character composed with dead key
-    charAndVirtKey = makeKeyMsg((UINT)wParam, wc[0], noAltGr);
-    clearDeadKey = true;
-    break;
-
-  case 2: {
-    // previous dead key not composed.  send a fake key press
-    // and release for the dead key to our window.
-    WPARAM deadCharAndVirtKey = makeKeyMsg((UINT)g_deadVirtKey, wc[0], noAltGr);
-    PostThreadMessage(g_threadID, DESKFLOW_MSG_KEY, deadCharAndVirtKey, g_deadLParam & 0x7fffffffu);
-    PostThreadMessage(g_threadID, DESKFLOW_MSG_KEY, deadCharAndVirtKey, g_deadLParam | 0x80000000u);
-
-    // use uncomposed character
-    charAndVirtKey = makeKeyMsg((UINT)wParam, wc[1], noAltGr);
-    clearDeadKey = true;
-    break;
-  }
-  }
-
-  // put back the dead key, if any, for the application to use
-  if (g_deadVirtKey != 0) {
-    ToUnicode((UINT)g_deadVirtKey, (g_deadLParam & 0x10ff0000u) >> 16, g_deadKeyState, wc, 2, flags);
-  }
-
-  // clear out old dead key state
-  if (clearDeadKey) {
-    g_deadVirtKey = 0;
-    g_deadLParam = 0;
+  if (kf_up) {
+    WCHAR prev = (vkCode < MSWindowsHook::kVirtualKeyCount) ? g_lastChars[vkCode] : 0;
+    bool noAltGr = (vkCode < MSWindowsHook::kVirtualKeyCount) && (g_lastNoAltGr[vkCode] != 0);
+    charAndVirtKey = makeKeyMsg((UINT)wParam, prev, noAltGr);
+  } else {
+    charAndVirtKey = mapKeyDown(wParam, lParam, keys, control, menu, flags);
   }
 
   // forward message to our window.  do this whether or not we're
@@ -541,27 +571,27 @@ static bool mouseHookHandler(WPARAM wParam, int32_t x, int32_t y, int32_t data)
       return true;
     } else if (g_mode == kHOOK_WATCH_JUMP_ZONE) {
       // low level hooks can report bogus mouse positions that are
-      // outside of the screen.  jeez.  naturally we end up getting
+      // outside of the computer.  jeez.  naturally we end up getting
       // fake motion in the other direction to get the position back
-      // on the screen, which plays havoc with switch on double tap.
+      // on the computer, which plays havoc with switch on double tap.
       // Server deals with that.  we'll clamp positions onto the
-      // screen.  also, if we discard events for positions outside
-      // of the screen then the mouse appears to get a bit jerky
+      // computer.  also, if we discard events for positions outside
+      // of the computer then the mouse appears to get a bit jerky
       // near the edge.  we can either accept that or pass the bogus
       // events.  we'll try passing the events.
       bool bogus = false;
-      if (x < g_xScreen) {
-        x = g_xScreen;
+      if (x < g_xComputer) {
+        x = g_xComputer;
         bogus = true;
-      } else if (x >= g_xScreen + g_wScreen) {
-        x = g_xScreen + g_wScreen - 1;
+      } else if (x >= g_xComputer + g_wComputer) {
+        x = g_xComputer + g_wComputer - 1;
         bogus = true;
       }
-      if (y < g_yScreen) {
-        y = g_yScreen;
+      if (y < g_yComputer) {
+        y = g_yComputer;
         bogus = true;
-      } else if (y >= g_yScreen + g_hScreen) {
-        y = g_yScreen + g_hScreen - 1;
+      } else if (y >= g_yComputer + g_hComputer) {
+        y = g_yComputer + g_hComputer - 1;
         bogus = true;
       }
 
@@ -569,16 +599,16 @@ static bool mouseHookHandler(WPARAM wParam, int32_t x, int32_t y, int32_t data)
       bool inside = false;
       using enum DirectionMask;
       if (!inside && (g_zoneSides & static_cast<int>(LeftMask)) != 0) {
-        inside = (x < g_xScreen + g_zoneSize);
+        inside = (x < g_xComputer + g_zoneSize);
       }
       if (!inside && (g_zoneSides & static_cast<int>(RightMask)) != 0) {
-        inside = (x >= g_xScreen + g_wScreen - g_zoneSize);
+        inside = (x >= g_xComputer + g_wComputer - g_zoneSize);
       }
       if (!inside && (g_zoneSides & static_cast<int>(TopMask)) != 0) {
-        inside = (y < g_yScreen + g_zoneSize);
+        inside = (y < g_yComputer + g_zoneSize);
       }
       if (!inside && (g_zoneSides & static_cast<int>(BottomMask)) != 0) {
-        inside = (y >= g_yScreen + g_hScreen - g_zoneSize);
+        inside = (y >= g_yComputer + g_hComputer - g_zoneSize);
       }
 
       // relay the event
@@ -629,6 +659,9 @@ EHookResult MSWindowsHook::install()
   // discard old dead keys
   g_deadVirtKey = 0;
   g_deadLParam = 0;
+  g_deadRelease = 0;
+  std::memset(g_lastChars, 0, sizeof(g_lastChars));
+  std::memset(g_lastNoAltGr, 0, sizeof(g_lastNoAltGr));
 
   // reset fake input flag
   g_fakeServerInput = false;
@@ -673,6 +706,9 @@ int MSWindowsHook::uninstall()
   // discard old dead keys
   g_deadVirtKey = 0;
   g_deadLParam = 0;
+  g_deadRelease = 0;
+  std::memset(g_lastChars, 0, sizeof(g_lastChars));
+  std::memset(g_lastNoAltGr, 0, sizeof(g_lastNoAltGr));
 
   // uninstall hooks
   if (g_keyboardLL != nullptr) {

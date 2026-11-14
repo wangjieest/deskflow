@@ -8,10 +8,12 @@ add_library(client STATIC
   Client.h
   FileTransferConnection.cpp
   FileTransferConnection.h
-  HelloBack.cpp
-  HelloBack.h
   ServerProxy.cpp
   ServerProxy.h
+  ServerProxy1_7.cpp
+  ServerProxy1_7.h
+  ServerProxy1_8.cpp
+  ServerProxy1_8.h
 )
 
 target_link_libraries(client PUBLIC common)

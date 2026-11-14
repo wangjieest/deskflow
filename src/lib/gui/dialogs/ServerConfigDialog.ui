@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>724</width>
-    <height>586</height>
+    <height>609</height>
    </rect>
   </property>
   <property name="minimumSize">
@@ -45,7 +45,7 @@
           <number>6</number>
          </property>
          <item>
-          <widget class="TrashScreenWidget" name="lblRemoveScreen">
+          <widget class="RemoveComputerWidget" name="lblRemoveComputer">
            <property name="acceptDrops">
             <bool>true</bool>
            </property>
@@ -115,7 +115,7 @@
           </spacer>
          </item>
          <item>
-          <widget class="NewScreenWidget" name="lblNewScreen">
+          <widget class="NewComputerWidget" name="lblNewComputer">
            <property name="toolTip">
             <string>Drag to the grid to add a new computer.</string>
            </property>
@@ -146,7 +146,7 @@
         </spacer>
        </item>
        <item>
-        <widget class="ScreenSetupView" name="screenSetupView">
+        <widget class="ComputerSetupView" name="computerSetupView">
          <property name="sizePolicy">
           <sizepolicy hsizetype="MinimumExpanding" vsizetype="Expanding">
            <horstretch>0</horstretch>
@@ -881,38 +881,28 @@ Enabling this setting will disable the server config GUI.</string>
      </widget>
     </widget>
    </item>
-   <item>
-    <widget class="QDialogButtonBox" name="buttonBox">
-     <property name="orientation">
-      <enum>Qt::Orientation::Horizontal</enum>
-     </property>
-     <property name="standardButtons">
-      <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
-     </property>
-    </widget>
-   </item>
   </layout>
  </widget>
  <customwidgets>
   <customwidget>
-   <class>ScreenSetupView</class>
+   <class>ComputerSetupView</class>
    <extends>QTableView</extends>
-   <header>widgets/ScreenSetupView.h</header>
+   <header>widgets/ComputerSetupView.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>
-   <class>TrashScreenWidget</class>
+   <class>RemoveComputerWidget</class>
    <extends>QLabel</extends>
-   <header>widgets/TrashScreenWidget.h</header>
+   <header>widgets/RemoveComputerWidget.h</header>
   </customwidget>
   <customwidget>
-   <class>NewScreenWidget</class>
+   <class>NewComputerWidget</class>
    <extends>QLabel</extends>
-   <header>widgets/NewScreenWidget.h</header>
+   <header>widgets/NewComputerWidget.h</header>
   </customwidget>
  </customwidgets>
  <tabstops>
-  <tabstop>screenSetupView</tabstop>
+  <tabstop>computerSetupView</tabstop>
   <tabstop>listHotkeys</tabstop>
   <tabstop>btnNewHotkey</tabstop>
   <tabstop>btnEditHotkey</tabstop>

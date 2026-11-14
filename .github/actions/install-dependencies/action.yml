@@ -40,6 +40,7 @@ runs:
                 qt6-base-dev qt6-tools-dev libxkbregistry-dev libxkbcommon-dev \
                 libei-dev libportal-dev help2man -y >/dev/null
             elif [ ${{inputs.like}} == "fedora" ]; then
+              dnf config-manager setopt fedora-cisco-openh264.enabled=0
               dnf install -y cmake make ninja-build gcc-c++ rpm-build openssl-devel \
                 libXtst-devel libxkbfile-devel qt6-qtbase-devel qt6-qttools-devel libxkbcommon-x11-devel \
                 libei-devel libxkbcommon-devel libportal-devel help2man libXinerama-devel libXrandr-devel
@@ -71,6 +72,7 @@ runs:
         version: ${{inputs.qt-version}}
         cache: true
         cache-key-prefix: ${{matrix.target.os}}-${{inputs.qt-version}}
+        aqtsource: git+https://github.com/miurahr/aqtinstall.git@16db45a70b5905ad596941b223469bc86a56901e
 
     - name: Build and cache vcpkg
       if: ${{ runner.os == 'Windows' }}

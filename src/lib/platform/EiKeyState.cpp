@@ -19,11 +19,11 @@
 
 namespace deskflow {
 
-EiKeyState::EiKeyState(EiScreen *screen, IEventQueue *events)
+EiKeyState::EiKeyState(EiComputer *computer, IEventQueue *events)
     : KeyState(
           events, AppUtil::instance().getKeyboardLayoutList(), Settings::value(Settings::Client::LanguageSync).toBool()
       ),
-      m_screen{screen}
+      m_computer{computer}
 {
   m_xkb = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
 
@@ -310,7 +310,7 @@ void EiKeyState::fakeKey(const Keystroke &keystroke)
       "fake key: %03x (%08x) %s", keystroke.m_data.m_button.m_button, keystroke.m_data.m_button.m_client,
       keystroke.m_data.m_button.m_press ? "down" : "up"
   );
-  m_screen->fakeKey(keystroke.m_data.m_button.m_button, keystroke.m_data.m_button.m_press);
+  m_computer->fakeKey(keystroke.m_data.m_button.m_button, keystroke.m_data.m_button.m_press);
 }
 
 KeyID EiKeyState::mapKeyFromKeyval(uint32_t keyval) const
@@ -345,6 +345,20 @@ void EiKeyState::updateXkbState(uint32_t keyval, bool isPressed)
   xkb_state_update_key(m_xkbState, keyval, isPressed ? XKB_KEY_DOWN : XKB_KEY_UP);
 }
 
+void EiKeyState::updateLockedModifiers(xkb_mod_mask_t lockedMods)
+{
+  // The compositor's lock state (Caps/Num/Scroll Lock) is authoritative; it
+  // also covers locks toggled while we weren't seeing the key events.
+  const auto depressedMods = xkb_state_serialize_mods(m_xkbState, XKB_STATE_MODS_DEPRESSED);
+  const auto latchedMods = xkb_state_serialize_mods(m_xkbState, XKB_STATE_MODS_LATCHED);
+  const auto depressedLayout = xkb_state_serialize_layout(m_xkbState, XKB_STATE_LAYOUT_DEPRESSED);
+  const auto latchedLayout = xkb_state_serialize_layout(m_xkbState, XKB_STATE_LAYOUT_LATCHED);
+  const auto lockedLayout = xkb_state_serialize_layout(m_xkbState, XKB_STATE_LAYOUT_LOCKED);
+  xkb_state_update_mask(
+      m_xkbState, depressedMods, latchedMods, lockedMods, depressedLayout, latchedLayout, lockedLayout
+  );
+}
+
 void EiKeyState::clearStaleModifiers()
 {
   const auto lockedMods = xkb_state_serialize_mods(m_xkbState, XKB_STATE_MODS_LOCKED);
@@ -353,7 +367,7 @@ void EiKeyState::clearStaleModifiers()
   // Recreate the XKB state to clear stuck depressed modifiers that happen when
   // modifier keys are pressed on the client and released on the server. Locked
   // modifiers are real keyboard state; do not clear NumLock/CapsLock/ScrollLock
-  // during screen transitions.
+  // during computer transitions.
   if (m_xkbState) {
     xkb_state_unref(m_xkbState);
   }

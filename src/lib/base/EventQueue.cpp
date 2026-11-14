@@ -18,6 +18,10 @@
 
 #include <stdexcept>
 
+#if defined(__APPLE__)
+#include "base/OSXAutoReleasePool.h"
+#endif
+
 // interrupt handler.  this just adds a quit event to the queue.
 static void interrupt(Arch::ThreadSignal, void *data)
 {
@@ -182,16 +186,23 @@ bool EventQueue::getEvent(Event &event, double timeout)
 
 bool EventQueue::dispatchEvent(const Event &event)
 {
-  void *target = event.getTarget();
-  if (auto typeHandler = getHandler(event.getType(), target); typeHandler.has_value()) {
-    (*typeHandler)(event);
-    return true;
-  }
-  if (auto anyHandler = getHandler(EventTypes::Unknown, target); anyHandler.has_value()) {
-    (*anyHandler)(event);
-    return true;
-  }
-  return false;
+#if defined(__APPLE__)
+  auto dispatch = [&] {
+#endif
+    void *target = event.getTarget();
+    if (auto typeHandler = getHandler(event.getType(), target); typeHandler.has_value()) {
+      (*typeHandler)(event);
+      return true;
+    }
+    if (auto anyHandler = getHandler(EventTypes::Unknown, target); anyHandler.has_value()) {
+      (*anyHandler)(event);
+      return true;
+    }
+    return false;
+#if defined(__APPLE__)
+  };
+  return deskflow::runInAutoReleasePool(dispatch);
+#endif
 }
 
 void EventQueue::addEvent(Event &&event)
@@ -425,10 +436,12 @@ void EventQueue::waitForReady() const
   double timeout = Arch::time() + 10;
   Lock lock(m_readyMutex);
 
-  while (!m_readyCondVar->wait()) {
+  while (!*m_readyCondVar) {
     if (Arch::time() > timeout) {
-      throw std::runtime_error("event queue is not ready within 5 sec");
+      throw std::runtime_error("event queue is not ready within 10 sec");
     }
+
+    m_readyCondVar->wait();
   }
 }
 

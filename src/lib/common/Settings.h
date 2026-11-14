@@ -15,6 +15,7 @@
 #include "common/NetworkProtocol.h"
 #include "common/QSettingsProxy.h"
 
+class QFileSystemWatcher;
 class Settings : public QObject
 {
   Q_OBJECT
@@ -42,6 +43,8 @@ public:
     inline static const auto XScrollScale = QStringLiteral("client/xScrollScale");
     inline static const auto LanguageSync = QStringLiteral("client/languageSync");
     inline static const auto RemoteHost = QStringLiteral("client/remoteHost");
+    inline static const auto RecentRemoteHosts = QStringLiteral("client/recentRemoteHosts");
+    inline static const auto XdpClipboardRetried = QStringLiteral("client/xdpClipboardRetried");
     inline static const auto XdpRestoreToken = QStringLiteral("client/xdpRestoreToken");
   };
   struct Core
@@ -57,14 +60,11 @@ public:
     inline static const auto UseHooks = QStringLiteral("core/useHooks");
     inline static const auto Language = QStringLiteral("core/language");
     inline static const auto EnableEnterCommand = QStringLiteral("core/enableEnterCommand");
-    inline static const auto ScreenEnterCommand = QStringLiteral("core/enterCommand");
+    inline static const auto ComputerEnterCommand = QStringLiteral("core/enterCommand");
     inline static const auto EnableExitCommand = QStringLiteral("core/enableExitCommand");
-    inline static const auto ScreenExitCommand = QStringLiteral("core/exitCommand");
+    inline static const auto ComputerExitCommand = QStringLiteral("core/exitCommand");
     inline static const auto GroupToken = QStringLiteral("core/groupToken");
     inline static const auto EnableFileTransfer = QStringLiteral("core/enableFileTransfer");
-
-    // TODO: REMOVE In 2.0
-    inline static const auto ScreenName = QStringLiteral("core/screenName"); // Replaced By ComputerName
   };
   struct Daemon
   {
@@ -110,7 +110,7 @@ public:
     inline static const auto DefaultLockToComputerState = QStringLiteral("server/defaultLockToComputerState");
     inline static const auto DisableLockToComputer = QStringLiteral("server/disableLockToComputer");
     inline static const auto EnableClipboard = QStringLiteral("server/enableClipboard");
-    inline static const auto EnableHeatbeat = QStringLiteral("server/enableHeatbeat");
+    inline static const auto EnableHeartbeat = QStringLiteral("server/enableHeartbeat");
     inline static const auto EnableSwitchDelay = QStringLiteral("server/enableSwitchDelay");
     inline static const auto EnableSwitchDoubleTap = QStringLiteral("server/enableSwitchDoubleTap");
     inline static const auto ExternalConfig = QStringLiteral("server/externalConfig");
@@ -123,12 +123,30 @@ public:
     inline static const auto SwitchDelay = QStringLiteral("server/switchDelay");
     inline static const auto SwitchDoubleTap = QStringLiteral("server/switchDoubleTap");
     inline static const auto Win32KeepForeground = QStringLiteral("server/win32KeepForeground");
+    inline static const auto XdpClipboardRetried = QStringLiteral("server/xdpClipboardRetried");
     inline static const auto XdpRestoreToken = QStringLiteral("server/xdpRestoreToken");
   };
 
-  struct Screen
+  struct Computer
   {
-    inline static const auto Aliases = QStringLiteral("screen_%1/aliases");
+    inline static const auto Aliases = QStringLiteral("computer_%1/aliases");
+    inline static const auto Name = QStringLiteral("computer_%1/name");
+    inline static const auto HalfDuplexCapsLock = QStringLiteral("computer_%1/halfDuplexCapsLock");
+    inline static const auto HalfDuplexNumLock = QStringLiteral("computer_%1/halfDuplexNumLock");
+    inline static const auto HalfDuplexScrollLock = QStringLiteral("computer_%1/halfDuplexScrollLock");
+    inline static const auto ModifierAlt = QStringLiteral("computer_%1/modifierAlt");
+    inline static const auto ModifierAltGr = QStringLiteral("computer_%1/modifierAltGr");
+    inline static const auto ModifierCtrl = QStringLiteral("computer_%1/modifierCtrl");
+    inline static const auto ModifierMeta = QStringLiteral("computer_%1/modifierMeta");
+    inline static const auto ModifierShift = QStringLiteral("computer_%1/modifierShift");
+    inline static const auto ModifierSuper = QStringLiteral("computer_%1/modifierSuper");
+    inline static const auto SwitchCornerSize = QStringLiteral("computer_%1/switchCornerSize");
+    inline static const auto SwitchCornerTopLeft = QStringLiteral("computer_%1/switchCornerTopLeft");
+    inline static const auto SwitchCornerTopRight = QStringLiteral("computer_%1/switchCornerTopRight");
+    inline static const auto SwitchCornerBottomLeft = QStringLiteral("computer_%1/switchCornerBottomLeft");
+    inline static const auto SwitchCornerBottomRight = QStringLiteral("computer_%1/switchCornerBottomRight");
+    inline static const auto WeakX11Focus = QStringLiteral("computer_%1/weakX11Focus");
+    inline static const auto XtestIsXineramaUnaware = QStringLiteral("computer_%1/xtestIsXineramaUnaware");
   };
 
   // Track Removed keys to make upgrading config easier
@@ -138,7 +156,7 @@ public:
     inline static const auto NumRows = QStringLiteral("internalConfig/numRows");
     inline static const auto NumColumns = QStringLiteral("internalConfig/numColumns");
     inline static const auto ClipboardSharing = QStringLiteral("internalConfig/clipboardSharing");
-    inline static const auto Heatbeat = QStringLiteral("internalConfig/heartbeat");
+    inline static const auto Heartbeat = QStringLiteral("internalConfig/heartbeat");
     inline static const auto SwitchDelay = QStringLiteral("internalConfig/switchDelay");
     inline static const auto HasHeartbeat = QStringLiteral("internalConfig/hasHeartbeat");
     inline static const auto HasSwitchDelay = QStringLiteral("internalConfig/hasSwitchDelay");
@@ -177,6 +195,7 @@ public:
   static Settings *instance();
   static void setSettingsFile(const QString &settingsFile = QString());
   static void setStateFile(const QString &stateFile = QString());
+  static void clearState();
   static void setValue(const QString &key = QString(), const QVariant &value = QVariant());
   static QVariant value(const QString &key = QString());
   static void restoreDefaultSettings();
@@ -197,10 +216,13 @@ public:
   static QStringList validKeys();
   static QStringList validGroups();
   static QString portableSettingsFile();
-  static void removeUnknownScreens(const QStringList &knownScreens);
+  static void removeUnknownComputers(const QStringList &knownComputers);
+  static QVariant computerDefaults(const QString &key);
+  static QStringList knownComputers();
 
 Q_SIGNALS:
   void settingsChanged(const QString key);
+  void settingsWritableChanged(bool writable);
   void serverSettingsChanged();
 
 private:
@@ -230,8 +252,16 @@ private:
    */
   static QString cleanComputerName(const QString &name);
 
+  /**
+   * @brief checkIfSettingsWritableChange
+   * Checks if the changed settings is now read only
+   */
+  void checkIfSettingsWritableChange();
+
   QSettings *m_settings = nullptr;
   QSettings *m_stateSettings = nullptr;
+  bool m_settingsWritable;
+  QFileSystemWatcher *m_settingsWatcher = nullptr;
   std::shared_ptr<QSettingsProxy> m_settingsProxy;
 
   // clang-format off
@@ -252,6 +282,7 @@ private:
     , Client::InvertXScroll
     , Client::LanguageSync
     , Client::RemoteHost
+    , Client::RecentRemoteHosts
     , Client::YScrollScale
     , Client::XScrollScale
     , Core::CoreMode
@@ -262,9 +293,8 @@ private:
     , Core::ProcessMode
     , Core::EnableEnterCommand
     , Core::EnableExitCommand
-    , Core::ScreenEnterCommand
-    , Core::ScreenExitCommand
-    , Core::ScreenName
+    , Core::ComputerEnterCommand
+    , Core::ComputerExitCommand
     , Core::ComputerName
     , Core::Display
     , Core::UseHooks
@@ -299,7 +329,7 @@ private:
     , Server::DefaultLockToComputerState
     , Server::DisableLockToComputer
     , Server::EnableClipboard
-    , Server::EnableHeatbeat
+    , Server::EnableHeartbeat
     , Server::EnableSwitchDelay
     , Server::EnableSwitchDoubleTap
     , Server::ExternalConfig
@@ -328,22 +358,24 @@ private:
     , Client::DynamicConnectionRetry
     , Client::InvertYScroll
     , Client::InvertXScroll
+    , Client::LanguageSync
+    , Client::XdpClipboardRetried
     , Log::ToFile
     , Log::GuiDebug
     , Server::DefaultLockToComputerState
     , Server::DisableLockToComputer
-    , Server::EnableHeatbeat
+    , Server::EnableHeartbeat
     , Server::EnableSwitchDelay
     , Server::EnableSwitchDoubleTap
     , Server::ExternalConfig
     , Server::RelativeMouseMoves
+    , Server::XdpClipboardRetried
   };
 
   // When checking the default values this list contains the ones that default to true.
   inline static const QStringList m_defaultTrueValues = {
       Core::UseHooks
     , Core::EnableFileTransfer
-    , Client::LanguageSync
     , Gui::CloseToTray
     , Gui::CloseReminder
     , Gui::LogExpanded
@@ -357,19 +389,21 @@ private:
   // Settings saved in our State file
   inline static const QStringList m_stateKeys = {
       Gui::WindowGeometry
+    , Client::XdpClipboardRetried
     , Client::XdpRestoreToken
+    , Server::XdpClipboardRetried
     , Server::XdpRestoreToken
    };
 
   // Contains settings keys to be upgraded.
   inline static const QMap<QString, QString> m_upgradedMap = {
     /*             OLD KEY                        NEW KEY          */
-      {Core::ScreenName, Core::ComputerName}
+      {QStringLiteral("core/screenName"), Core::ComputerName}
     , {InternalConfig::NumColumns, Server::GridWidth}
     , {InternalConfig::NumRows, Server::GridHeight}
-    , {InternalConfig::Heatbeat, Server::Heartbeat}
+    , {InternalConfig::Heartbeat, Server::Heartbeat}
     , {InternalConfig::SwitchDelay, Server::SwitchDelay}
-    , {InternalConfig::HasHeartbeat, Server::EnableHeatbeat}
+    , {InternalConfig::HasHeartbeat, Server::EnableHeartbeat}
     , {InternalConfig::HasSwitchDelay, Server::EnableSwitchDelay}
     , {InternalConfig::HasSwitchDoubleTap, Server::EnableSwitchDoubleTap}
     , {InternalConfig::ClipboardSharing, Server::EnableClipboard}
@@ -391,7 +425,7 @@ private:
     , InternalConfig::HasHeartbeat
     , InternalConfig::HasSwitchDelay
     , InternalConfig::HasSwitchDoubleTap
-    , InternalConfig::Heatbeat
+    , InternalConfig::Heartbeat
     , InternalConfig::NumColumns
     , InternalConfig::NumRows
     , InternalConfig::RelativeMouseMoves

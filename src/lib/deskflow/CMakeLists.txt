@@ -48,26 +48,29 @@ add_library(${lib_name} STATIC ${PLATFORM_CODE}
   ClipboardTransferThread.h
   ClipboardTransferWorker.cpp
   ClipboardTransferWorker.h
+  Computer.cpp
+  Computer.h
+  DeskflowException.cpp
+  DeskflowException.h
+  DisplayException.cpp
+  DisplayException.h
+  DisplayInvalidException.h
   FileTransfer.cpp
   FileTransfer.h
   FileTransferServer.cpp
   FileTransferServer.h
-  DeskflowException.cpp
-  DeskflowException.h
-  DisplayInvalidException.h
   IApp.h
   IClient.h
   IClipboard.cpp
   IClipboard.h
+  IComputer.h
   IKeyState.cpp
   IKeyState.h
-  IPlatformScreen.cpp
-  IPlatformScreen.h
-  IPrimaryScreen.cpp
-  IPrimaryScreen.h
-  IScreen.h
+  IPlatformComputer.h
+  IPrimaryComputer.cpp
+  IPrimaryComputer.h
   IScreenSaver.h
-  ISecondaryScreen.h
+  ISecondaryComputer.h
   KeyTypes.cpp
   KeyTypes.h
   KeyMap.cpp
@@ -78,16 +81,12 @@ add_library(${lib_name} STATIC ${PLATFORM_CODE}
   OptionTypes.h
   PacketStreamFilter.cpp
   PacketStreamFilter.h
-  PlatformScreen.cpp
-  PlatformScreen.h
+  PlatformComputer.cpp
+  PlatformComputer.h
   ProtocolTypes.cpp
   ProtocolTypes.h
   ProtocolUtil.cpp
   ProtocolUtil.h
-  Screen.cpp
-  Screen.h
-  ScreenException.cpp
-  ScreenException.h
   ServerApp.cpp
   ServerApp.h
   StreamChunker.cpp
@@ -116,5 +115,5 @@ target_link_libraries(${lib_name}
 )
 
 if(UNIX AND NOT APPLE)
-  target_link_libraries(${lib_name} PRIVATE server ${LIBXKBREGISTRY_LINK_LIBRARIES})
+  target_link_libraries(${lib_name} PRIVATE server)
 endif()

@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>391</width>
-    <height>176</height>
+    <width>482</width>
+    <height>197</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -165,12 +165,9 @@
     </widget>
    </item>
    <item>
-    <widget class="QDialogButtonBox" name="buttonBox">
-     <property name="orientation">
-      <enum>Qt::Orientation::Horizontal</enum>
-     </property>
-     <property name="standardButtons">
-      <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Reset|QDialogButtonBox::StandardButton::RestoreDefaults|QDialogButtonBox::StandardButton::Save</set>
+    <widget class="QPushButton" name="btnClearServerHistory">
+     <property name="text">
+      <string>Clear Server History</string>
      </property>
     </widget>
    </item>

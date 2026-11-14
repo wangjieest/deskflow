@@ -14,7 +14,7 @@
 #if WINAPI_XWINDOWS
 #include <X11/XKBlib.h>
 #include <deskflow/unix/XkbLayoutsParser.h>
-#elif defined(Q_OS_MAC)
+#elif defined(Q_OS_MACOS)
 #include <Carbon/Carbon.h>
 #include <platform/OSXAutoTypes.h>
 #endif
@@ -34,11 +34,6 @@ int AppUtilUnix::run()
   return app().runInner(&startStatic);
 }
 
-void AppUtilUnix::startNode()
-{
-  app().startNode();
-}
-
 std::vector<std::string> AppUtilUnix::getKeyboardLayoutList()
 {
   std::vector<std::string> layoutLangCodes;
@@ -46,7 +41,7 @@ std::vector<std::string> AppUtilUnix::getKeyboardLayoutList()
 #if WINAPI_XWINDOWS
   layoutLangCodes = XkbLayoutsParser::getXkbLanguageList();
 
-#elif defined(Q_OS_MAC)
+#elif defined(Q_OS_MACOS)
   CFStringRef keys[] = {kTISPropertyInputSourceCategory};
   CFStringRef values[] = {kTISCategoryKeyboardInputSource};
   AutoCFDictionary dict(
@@ -142,7 +137,7 @@ std::string AppUtilUnix::getCurrentLanguageCode()
 
   result = XkbLayoutsParser::convertLayoutToISO(result);
 
-#elif defined(Q_OS_MAC)
+#elif defined(Q_OS_MACOS)
   AutoTISInputSourceRef source(nullptr, CFRelease);
   CFArrayRef layoutLanguages = nullptr;
   {

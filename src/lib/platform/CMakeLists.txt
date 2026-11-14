@@ -4,6 +4,15 @@
 # SPDX-License-Identifier: MIT
 
 if(UNIX AND NOT APPLE)
+  include(FindPkgConfig)
+  find_package(PkgConfig REQUIRED)
+
+  pkg_check_modules(LIBXKBCOMMON REQUIRED xkbcommon)
+  message(STATUS "xkbcommon version: ${LIBXKBCOMMON_VERSION}")
+
+  pkg_check_modules(LIBXKBREGISTRY REQUIRED xkbregistry)
+  message(STATUS "xkbregistry version: ${LIBXKBREGISTRY_VERSION}")
+
   pkg_check_modules(LIBEI REQUIRED QUIET "libei-1.0 >= ${REQUIRED_LIBEI_VERSION}")
   message(STATUS "libei version: ${LIBEI_VERSION}")
 
@@ -18,6 +27,7 @@ if(UNIX AND NOT APPLE)
   set(CMAKE_REQUIRED_LIBRARIES "${CMAKE_REQUIRED_LIBRARIES};${LIBPORTAL_LINK_LIBRARIES};")
   check_symbol_exists(xdp_input_capture_session_get_restore_token "libportal/inputcapture.h" HAVE_IC_RESTORE)
   check_symbol_exists(xdp_session_request_clipboard "libportal/portal-helpers.h;libportal/clipboard.h" HAVE_LP_CLIPBOARD)
+  check_symbol_exists(xdp_global_shortcut_new "libportal/globalshortcuts.h" HAVE_LP_SHORTCUTS)
   cmake_pop_check_state()
 endif()
 
@@ -38,10 +48,10 @@ if(WIN32)
     MSWindowsClipboardHTMLConverter.h
     MSWindowsClipboardUTF16Converter.cpp
     MSWindowsClipboardUTF16Converter.h
+    MSWindowsComputer.cpp
+    MSWindowsComputer.h
     MSWindowsDataObject.cpp
     MSWindowsDataObject.h
-    MSWindowsP2PStream.cpp
-    MSWindowsP2PStream.h
     MSWindowsDebugOutputter.cpp
     MSWindowsDebugOutputter.h
     MSWindowsDesks.cpp
@@ -52,12 +62,12 @@ if(WIN32)
     MSWindowsHook.h
     MSWindowsKeyState.cpp
     MSWindowsKeyState.h
+    MSWindowsP2PStream.cpp
+    MSWindowsP2PStream.h
     MSWindowsPowerManager.cpp
     MSWindowsPowerManager.h
     MSWindowsProcess.cpp
     MSWindowsProcess.h
-    MSWindowsScreen.cpp
-    MSWindowsScreen.h
     MSWindowsScreenSaver.cpp
     MSWindowsScreenSaver.h
     MSWindowsSession.cpp
@@ -90,6 +100,8 @@ elseif(APPLE)
     OSXClipboardUTF16Converter.h
     OSXCocoaApp.h
     OSXCocoaApp.m
+    OSXComputer.h
+    OSXComputer.mm
     OSXEventQueueBuffer.cpp
     OSXEventQueueBuffer.h
     OSXKeyLayoutResource.cpp
@@ -102,8 +114,6 @@ elseif(APPLE)
     OSXPasteboardPeeker.m
     OSXPowerManager.cpp
     OSXPowerManager.h
-    OSXScreen.h
-    OSXScreen.mm
     OSXScreenSaver.cpp
     OSXScreenSaver.h
     OSXScreenSaverControl.h
@@ -137,12 +147,12 @@ elseif(UNIX)
       XWindowsClipboardUCS2Converter.h
       XWindowsClipboardUTF8Converter.cpp
       XWindowsClipboardUTF8Converter.h
+      XWindowsComputer.cpp
+      XWindowsComputer.h
       XWindowsEventQueueBuffer.cpp
       XWindowsEventQueueBuffer.h
       XWindowsKeyState.cpp
       XWindowsKeyState.h
-      XWindowsScreen.cpp
-      XWindowsScreen.h
       XWindowsScreenSaver.cpp
       XWindowsScreenSaver.h
       XWindowsUtil.cpp
@@ -155,12 +165,12 @@ elseif(UNIX)
     list(APPEND PLATFORM_SOURCES
       EiClipboard.cpp
       EiClipboard.h
+      EiComputer.cpp
+      EiComputer.h
       EiEventQueueBuffer.cpp
       EiEventQueueBuffer.h
       EiKeyState.cpp
       EiKeyState.h
-      EiScreen.cpp
-      EiScreen.h
     )
     # The Portal sources also require EI.
     if(LIBPORTAL_FOUND)
@@ -174,6 +184,12 @@ elseif(UNIX)
         list(APPEND PLATFORM_SOURCES
           PortalClipboard.cpp
           PortalClipboard.h
+        )
+      endif()
+      if(HAVE_LP_SHORTCUTS)
+        list(APPEND PLATFORM_SOURCES
+          PortalGlobalShortcuts.cpp
+          PortalGlobalShortcuts.h
         )
       endif()
     endif()
@@ -208,13 +224,24 @@ if(UNIX)
     if (HAVE_LP_CLIPBOARD)
       target_compile_definitions(platform PUBLIC HAVE_LIBPORTAL_CLIPBOARD)
     endif()
-    target_include_directories(platform PUBLIC ${LIBEI_INCLUDE_DIRS} ${LIBPORTAL_INCLUDE_DIRS})
+    if (HAVE_LP_SHORTCUTS)
+      target_compile_definitions(platform PUBLIC HAVE_LIBPORTAL_SHORTCUTS)
+    endif()
+    target_include_directories(platform
+      PUBLIC
+        ${LIBEI_INCLUDE_DIRS}
+        ${LIBPORTAL_INCLUDE_DIRS}
+        ${LIBXKBCOMMON_INCLUDE_DIRS}
+        ${LIBXKBREGISTRY_INCLUDE_DIRS}
+      )
     target_link_libraries(platform
       PUBLIC
         Qt6::DBus
+        ${LIBXKBREGISTRY_LINK_LIBRARIES}
       PRIVATE
         Qt6::Gui
         ${LIBXKBCOMMON_LINK_LIBRARIES}
-        ${LIBEI_LINK_LIBRARIES} ${LIBPORTAL_LINK_LIBRARIES})
+        ${LIBEI_LINK_LIBRARIES} ${LIBPORTAL_LINK_LIBRARIES}
+      )
   endif()
 endif()
