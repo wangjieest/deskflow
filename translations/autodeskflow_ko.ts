@@ -136,7 +136,7 @@ p, li { white-space: pre-wrap; }
     </message>
     <message>
         <source>Switch to </source>
-        <translation>전환: </translation>
+        <translation type="vanished">전환: </translation>
     </message>
 </context>
 <context>
@@ -171,27 +171,209 @@ p, li { white-space: pre-wrap; }
     </message>
     <message>
         <source>Close and save changes</source>
-        <translation>변경 사항 저장 후 닫기</translation>
+        <translation type="vanished">변경 사항 저장 후 닫기</translation>
     </message>
     <message>
         <source>Close and forget changes</source>
-        <translation>저장하지 않고 닫기</translation>
+        <translation type="vanished">저장하지 않고 닫기</translation>
     </message>
     <message>
         <source>Reset to stored values</source>
-        <translation type="unfinished">저장된 값으로 재설정</translation>
+        <translation type="obsolete">저장된 값으로 재설정</translation>
     </message>
     <message>
         <source>Reset to default values</source>
-        <translation type="unfinished">기본값으로 재설정</translation>
+        <translation type="obsolete">기본값으로 재설정</translation>
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Allow the client to slow the rate it attempts to reconnect to the server when connections attempts are failing. The delay between connection attempts will  start at 1 second intervals and can be a maxium of 5 minutes between connection attempts.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;연결 시도가 실패할 경우, 클라이언트가 서버 재연결 시도 주기를 늦추도록 허용합니다. 연결 시도 간 지연 시간은 1초 간격으로 시작되며, 최대 5분까지 늘어날 수 있습니다.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>Use dynamic reconnection time based on connection attempts</source>
+        <translation type="unfinished">연결 시도 횟수에 따라 동적 재연결 시간을 사용합니다</translation>
+    </message>
+    <message>
+        <source>Clear Server History</source>
+        <translation type="unfinished">서버 기록 지우기</translation>
+    </message>
+</context>
+<context>
+    <name>ComputerSettingsDialog</name>
+    <message>
+        <source>Computer settings</source>
+        <translation type="unfinished">컴퓨터 설정</translation>
+    </message>
+    <message>
+        <source>Computer Info</source>
+        <translation type="unfinished">컴퓨터 정보</translation>
+    </message>
+    <message>
+        <source>Name</source>
+        <translation type="unfinished">이름</translation>
+    </message>
+    <message>
+        <source>Modifier Keys</source>
+        <translation type="unfinished">수정 키</translation>
+    </message>
+    <message>
+        <source>&amp;Preset</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Default</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Windows → Mac</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mac → Windows</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>M&amp;eta</source>
+        <translation type="unfinished">M&amp;eta</translation>
+    </message>
+    <message>
+        <source>&amp;Ctrl</source>
+        <translation type="unfinished">&amp;Ctrl</translation>
+    </message>
+    <message>
+        <source>S&amp;uper</source>
+        <translation type="unfinished">S&amp;uper</translation>
+    </message>
+    <message>
+        <source>Al&amp;t</source>
+        <translation type="unfinished">Al&amp;t</translation>
+    </message>
+    <message>
+        <source>Shift</source>
+        <translation type="unfinished">Shift</translation>
+    </message>
+    <message>
+        <source>Ctrl</source>
+        <translation type="unfinished">Ctrl</translation>
+    </message>
+    <message>
+        <source>Alt</source>
+        <translation type="unfinished">Alt</translation>
+    </message>
+    <message>
+        <source>Meta</source>
+        <translation type="unfinished">Meta</translation>
+    </message>
+    <message>
+        <source>Super</source>
+        <translation type="unfinished">Super</translation>
+    </message>
+    <message>
+        <source>Alt Gr</source>
+        <translation type="unfinished">Alt Gr</translation>
+    </message>
+    <message>
+        <source>None</source>
+        <translation type="unfinished">없음</translation>
+    </message>
+    <message>
+        <source>&amp;Shift</source>
+        <translation type="unfinished">&amp;Shift</translation>
+    </message>
+    <message>
+        <source>Alt &amp;Gr</source>
+        <translation type="unfinished">Alt &amp;Gr</translation>
+    </message>
+    <message>
+        <source>Dead Corners</source>
+        <translation type="unfinished">화면 걸림 방지</translation>
+    </message>
+    <message>
+        <source>Top Left</source>
+        <translation type="unfinished">왼쪽 위</translation>
+    </message>
+    <message>
+        <source>Top Right</source>
+        <translation type="unfinished">오른쪽 위</translation>
+    </message>
+    <message>
+        <source>Corner si&amp;ze</source>
+        <translation type="unfinished">모서리 크기(&amp;Z)</translation>
+    </message>
+    <message>
+        <source>Bottom Left</source>
+        <translation type="unfinished">왼쪽 아래</translation>
+    </message>
+    <message>
+        <source>Bottom Right</source>
+        <translation type="unfinished">오른쪽 아래</translation>
+    </message>
+    <message>
+        <source>Fixes</source>
+        <translation type="unfinished">수정</translation>
+    </message>
+    <message>
+        <source>SCROLL LOCK key</source>
+        <translation type="unfinished">SCROLL LOCK 키</translation>
+    </message>
+    <message>
+        <source>CAPS LOCK key</source>
+        <translation type="unfinished">CAPS LOCK 키</translation>
+    </message>
+    <message>
+        <source>NUM LOCK key</source>
+        <translation type="unfinished">NUM LOCK 키</translation>
+    </message>
+    <message>
+        <source>XTest for Xinerama</source>
+        <translation type="unfinished">Xinerama용 XTest</translation>
+    </message>
+    <message>
+        <source>X11 computers Only, When enabled the client will not give focus to its focused window as soon as the client is switched to. This can help prevent unwanted focus stealing with some X11 setups.</source>
+        <translation type="unfinished">X11 환경에서만 적용됩니다. 이 기능을 활성화하면 클라이언트가 활성화(전환)되는 즉시 해당 창으로 포커스가 이동하지 않습니다. 이를 통해 일부 X11 설정에서 발생할 수 있는 원치 않는 포커스 탈취(focus stealing) 문제를 방지할 수 있습니다.</translation>
+    </message>
+    <message>
+        <source>Weaken X11 Focus</source>
+        <translation type="unfinished">X11 포커스 약화</translation>
+    </message>
+    <message>
+        <source>Aliases</source>
+        <translation type="unfinished">별칭</translation>
+    </message>
+    <message>
+        <source>&amp;Add</source>
+        <translation type="unfinished">추가(&amp;A)</translation>
+    </message>
+    <message>
+        <source>&amp;Remove</source>
+        <translation type="unfinished">삭제(&amp;R)</translation>
+    </message>
+    <message>
+        <source>Custom</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Computer name is empty</source>
+        <translation type="unfinished">컴퓨터 이름이 비어 있습니다.</translation>
+    </message>
+    <message>
+        <source>The computer name cannot be empty. Please either fill in a name or cancel the dialog.</source>
+        <translation type="unfinished">컴퓨터 이름을 비워둘 수 없습니다. 이름을 입력하거나 대화 상자를 취소하십시오.</translation>
+    </message>
+    <message>
+        <source>Computer name matches alias</source>
+        <translation type="unfinished">컴퓨터 이름이 별칭과 일치합니다.</translation>
+    </message>
+    <message>
+        <source>The computer name cannot be the same as an alias. Please either remove the alias or change the computer name.</source>
+        <translation type="unfinished">컴퓨터 이름은 별칭과 같을 수 없습니다. 별칭을 제거하거나 컴퓨터 이름을 변경하십시오.</translation>
+    </message>
+</context>
+<context>
+    <name>ComputerSetupModel</name>
+    <message>
+        <source>&lt;center&gt;Computer: &lt;b&gt;%1&lt;/b&gt;&lt;/center&gt;&lt;br&gt;Double click to edit settings&lt;br&gt;Drag computer to the trashcan to remove it</source>
+        <translation type="unfinished">&lt;center&gt;컴퓨터: &lt;b&gt;%1&lt;/b&gt;&lt;/center&gt;&lt;br&gt;설정을 편집하려면 두 번 클릭하세요&lt;br&gt;컴퓨터를 휴지통으로 드래그하여 제거하세요</translation>
     </message>
 </context>
 <context>
@@ -218,7 +400,7 @@ p, li { white-space: pre-wrap; }
     </message>
     <message>
         <source>Close</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">닫다</translation>
     </message>
     <message>
         <source>Transfer complete</source>
@@ -330,6 +512,17 @@ Do you want to connect to the server?
     </message>
 </context>
 <context>
+    <name>HelpDialog</name>
+    <message>
+        <source>%1 Help</source>
+        <translation type="unfinished">%1 도움말</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation type="unfinished">닫다</translation>
+    </message>
+</context>
+<context>
     <name>HotkeyDialog</name>
     <message>
         <source>Hotkey</source>
@@ -357,6 +550,33 @@ Do you want to connect to the server?
     <message>
         <source>Attach to window</source>
         <translation>창에 붙이기</translation>
+    </message>
+</context>
+<context>
+    <name>LogLevel</name>
+    <message>
+        <source>Fatal</source>
+        <translation type="unfinished">치명적 오류</translation>
+    </message>
+    <message>
+        <source>Error</source>
+        <translation type="unfinished">오류</translation>
+    </message>
+    <message>
+        <source>Warning</source>
+        <translation type="unfinished">경고</translation>
+    </message>
+    <message>
+        <source>Info</source>
+        <translation type="unfinished">정보</translation>
+    </message>
+    <message>
+        <source>Debug</source>
+        <translation type="unfinished">디버그</translation>
+    </message>
+    <message>
+        <source>Verbose</source>
+        <translation type="unfinished">말 수가 많은</translation>
     </message>
 </context>
 <context>
@@ -450,8 +670,31 @@ Do you want to connect to the server?
         <translation>연결 해제</translation>
     </message>
     <message>
+        <source>Enable Finder Extension</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>AutoDeskflow includes a Finder extension that adds
+&quot;Paste N Items from &lt;machine&gt;&quot; to the right-click menu.
+
+Would you like to enable it now?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>&lt;p&gt;Failed to connect to the server &apos;%1&apos;.&lt;/p&gt;&lt;p&gt;A Client with your name is already connected to the server.&lt;/p&gt;Please ensure that you&apos;re using a unique name and that only a single instance of the client process is running.&lt;/p&gt;</source>
         <translation>&lt;p&gt;서버 &apos;%1&apos;에 연결하지 못했습니다.&lt;/p&gt;&lt;p&gt;같은 이름의 클라이언트가 이미 서버에 연결되어 있습니다.&lt;/p&gt;&lt;p&gt;고유한 이름을 사용하고, 클라이언트 프로세스가 하나만 실행 중인지 확인하세요.&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <source>View &amp;Help</source>
+        <translation type="unfinished">도움말 보기(&amp;H)</translation>
+    </message>
+    <message>
+        <source>Invalid Computer Name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Computer name already exists</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>No IP Detected</source>
@@ -501,11 +744,11 @@ A bound IP is now invalid, you may need to restart the server.</source>
     </message>
     <message>
         <source>Clear settings</source>
-        <translation>설정 초기화</translation>
+        <translation type="vanished">설정 초기화</translation>
     </message>
     <message>
         <source>Report a Bug</source>
-        <translation>버그 신고</translation>
+        <translation type="vanished">버그 신고</translation>
     </message>
     <message>
         <source>&amp;Minimize to tray</source>
@@ -554,11 +797,11 @@ A bound IP is now invalid, you may need to restart the server.</source>
     </message>
     <message>
         <source>Invalid Screen Name</source>
-        <translation>잘못된 컴퓨터 이름</translation>
+        <translation type="vanished">잘못된 컴퓨터 이름</translation>
     </message>
     <message>
         <source>Screen name already exists</source>
-        <translation>컴퓨터 이름이 이미 존재합니다</translation>
+        <translation type="vanished">컴퓨터 이름이 이미 존재합니다</translation>
     </message>
     <message>
         <source>The name you have chosen is invalid.
@@ -635,8 +878,25 @@ Additionally, check you are able to %1 the server config file: %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Automatic discovery is not working: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Looking for other computers on this network.
+They show up here once they run AutoDeskflow with the same Group Token (Preferences).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Discovered peers:
 %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 became the host, this computer will join it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connecting to the host at %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -677,11 +937,19 @@ Additionally, check you are able to %1 the server config file: %2</source>
     </message>
 </context>
 <context>
+    <name>NewComputerWidget</name>
+    <message>
+        <source>Unnamed</source>
+        <extracomment>Used as the hostname. Translation may not contain spaces</extracomment>
+        <translation type="unfinished">이름없음</translation>
+    </message>
+</context>
+<context>
     <name>NewScreenWidget</name>
     <message>
         <source>Unnamed</source>
         <extracomment>Used as the hostname. Translation may not contain spaces</extracomment>
-        <translation>이름없음</translation>
+        <translation type="vanished">이름없음</translation>
     </message>
 </context>
 <context>
@@ -759,8 +1027,12 @@ Additionally, check you are able to %1 the server config file: %2</source>
         <translation>%1 - 새 클라이언트</translation>
     </message>
     <message>
+        <source>A new client called &apos;%1&apos; has been accepted. You&apos;ll need to add it to your server&apos;s computer layout.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>A new client called &apos;%1&apos; has been accepted. You&apos;ll need to add it to your server&apos;s screen layout.</source>
-        <translation>새 클라이언트 &apos;%1&apos;이(가) 허용되었습니다. 서버의 화면 배치에 추가해 주세요.</translation>
+        <translation type="vanished">새 클라이언트 &apos;%1&apos;이(가) 허용되었습니다. 서버의 화면 배치에 추가해 주세요.</translation>
     </message>
     <message>
         <source>Ignore</source>
@@ -776,19 +1048,19 @@ Additionally, check you are able to %1 the server config file: %2</source>
     </message>
     <message>
         <source>%1 Clear Settings</source>
-        <translation>%1 설정 초기화</translation>
+        <translation type="vanished">%1 설정 초기화</translation>
     </message>
     <message>
         <source>&lt;p&gt;Are you sure you want to clear all settings and restart %1?&lt;/p&gt;&lt;p&gt;This action cannot be undone.&lt;/p&gt;</source>
-        <translation>&lt;p&gt;모든 설정을 초기화하고 %1을(를) 재시작할까요?&lt;/p&gt;&lt;p&gt;이 작업은 번복될 수 없습니다.&lt;/p&gt;</translation>
+        <translation type="vanished">&lt;p&gt;모든 설정을 초기화하고 %1을(를) 재시작할까요?&lt;/p&gt;&lt;p&gt;이 작업은 번복될 수 없습니다.&lt;/p&gt;</translation>
     </message>
     <message>
         <source>%1 Read-only settings</source>
-        <translation>%1 읽기 전용 설정</translation>
+        <translation type="vanished">%1 읽기 전용 설정</translation>
     </message>
     <message>
         <source>&lt;p&gt;Settings are read-only because you only have read access to the file:&lt;/p&gt;&lt;p&gt;%1&lt;/p&gt;</source>
-        <translation>&lt;p&gt;다음 파일에 대한 쓰기 권한이 없어 설정이 읽기 전용입니다:&lt;/p&gt;&lt;p&gt;%1&lt;/p&gt;</translation>
+        <translation type="vanished">&lt;p&gt;다음 파일에 대한 쓰기 권한이 없어 설정이 읽기 전용입니다:&lt;/p&gt;&lt;p&gt;%1&lt;/p&gt;</translation>
     </message>
     <message>
         <source>No thanks</source>
@@ -841,163 +1113,175 @@ Additionally, check you are able to %1 the server config file: %2</source>
         <source>%1 is already running</source>
         <translation>%1이(가) 이미 실행 중입니다</translation>
     </message>
+    <message>
+        <source>Shift</source>
+        <translation type="unfinished">Shift</translation>
+    </message>
+    <message>
+        <source>Ctrl</source>
+        <translation type="unfinished">Ctrl</translation>
+    </message>
+    <message>
+        <source>Alt</source>
+        <translation type="unfinished">Alt</translation>
+    </message>
+    <message>
+        <source>Meta</source>
+        <translation type="unfinished">Meta</translation>
+    </message>
+    <message>
+        <source>Super</source>
+        <translation type="unfinished">Super</translation>
+    </message>
+    <message>
+        <source>AltGr</source>
+        <translation type="unfinished">AltGr</translation>
+    </message>
+    <message>
+        <source>None</source>
+        <translation type="unfinished">없음</translation>
+    </message>
 </context>
 <context>
     <name>ScreenSettingsDialog</name>
     <message>
         <source>Computer settings</source>
-        <translation>컴퓨터 설정</translation>
+        <translation type="vanished">컴퓨터 설정</translation>
     </message>
     <message>
         <source>Computer Info</source>
-        <translation>컴퓨터 정보</translation>
+        <translation type="vanished">컴퓨터 정보</translation>
     </message>
     <message>
         <source>Name</source>
-        <translation>이름</translation>
+        <translation type="vanished">이름</translation>
     </message>
     <message>
         <source>Modifier Keys</source>
-        <translation>수정 키</translation>
+        <translation type="vanished">수정 키</translation>
     </message>
     <message>
         <source>M&amp;eta</source>
-        <translation>M&amp;eta</translation>
+        <translation type="vanished">M&amp;eta</translation>
     </message>
     <message>
         <source>&amp;Ctrl</source>
-        <translation>&amp;Ctrl</translation>
+        <translation type="vanished">&amp;Ctrl</translation>
     </message>
     <message>
         <source>S&amp;uper</source>
-        <translation>S&amp;uper</translation>
+        <translation type="vanished">S&amp;uper</translation>
     </message>
     <message>
         <source>Al&amp;t</source>
-        <translation>Al&amp;t</translation>
+        <translation type="vanished">Al&amp;t</translation>
     </message>
     <message>
         <source>Shift</source>
-        <translation>Shift</translation>
+        <translation type="vanished">Shift</translation>
     </message>
     <message>
         <source>Ctrl</source>
-        <translation>Ctrl</translation>
+        <translation type="vanished">Ctrl</translation>
     </message>
     <message>
         <source>Alt</source>
-        <translation>Alt</translation>
+        <translation type="vanished">Alt</translation>
     </message>
     <message>
         <source>Meta</source>
-        <translation>Meta</translation>
+        <translation type="vanished">Meta</translation>
     </message>
     <message>
         <source>Super</source>
-        <translation>Super</translation>
+        <translation type="vanished">Super</translation>
     </message>
     <message>
         <source>None</source>
-        <translation>없음</translation>
+        <translation type="vanished">없음</translation>
     </message>
     <message>
         <source>&amp;Shift</source>
-        <translation>&amp;Shift</translation>
+        <translation type="vanished">&amp;Shift</translation>
     </message>
     <message>
         <source>Dead Corners</source>
-        <translation>화면 걸림 방지</translation>
+        <translation type="vanished">화면 걸림 방지</translation>
     </message>
     <message>
         <source>Top Left</source>
-        <translation>왼쪽 위</translation>
+        <translation type="vanished">왼쪽 위</translation>
     </message>
     <message>
         <source>Top Right</source>
-        <translation>오른쪽 위</translation>
+        <translation type="vanished">오른쪽 위</translation>
     </message>
     <message>
         <source>Corner si&amp;ze</source>
-        <translation>모서리 크기(&amp;Z)</translation>
+        <translation type="vanished">모서리 크기(&amp;Z)</translation>
     </message>
     <message>
         <source>Bottom Left</source>
-        <translation>왼쪽 아래</translation>
+        <translation type="vanished">왼쪽 아래</translation>
     </message>
     <message>
         <source>Bottom Right</source>
-        <translation>오른쪽 아래</translation>
+        <translation type="vanished">오른쪽 아래</translation>
     </message>
     <message>
         <source>Fixes</source>
-        <translation>수정</translation>
+        <translation type="vanished">수정</translation>
     </message>
     <message>
         <source>SCROLL LOCK key</source>
-        <translation>SCROLL LOCK 키</translation>
+        <translation type="vanished">SCROLL LOCK 키</translation>
     </message>
     <message>
         <source>CAPS LOCK key</source>
-        <translation>CAPS LOCK 키</translation>
+        <translation type="vanished">CAPS LOCK 키</translation>
     </message>
     <message>
         <source>NUM LOCK key</source>
-        <translation>NUM LOCK 키</translation>
+        <translation type="vanished">NUM LOCK 키</translation>
     </message>
     <message>
         <source>XTest for Xinerama</source>
-        <translation>Xinerama용 XTest</translation>
+        <translation type="vanished">Xinerama용 XTest</translation>
     </message>
     <message>
         <source>Aliases</source>
-        <translation>별칭</translation>
+        <translation type="vanished">별칭</translation>
     </message>
     <message>
         <source>&amp;Add</source>
-        <translation>추가(&amp;A)</translation>
+        <translation type="vanished">추가(&amp;A)</translation>
     </message>
     <message>
         <source>&amp;Remove</source>
-        <translation>삭제(&amp;R)</translation>
+        <translation type="vanished">삭제(&amp;R)</translation>
     </message>
     <message>
         <source>Screen name is empty</source>
-        <translation>컴퓨터 이름이 비어 있습니다</translation>
+        <translation type="vanished">컴퓨터 이름이 비어 있습니다</translation>
     </message>
     <message>
         <source>The screen name cannot be empty. Please either fill in a name or cancel the dialog.</source>
-        <translation>컴퓨터 이름은 비워 둘 수 없습니다. 이름을 입력하거나 대화상자를 취소하세요.</translation>
+        <translation type="vanished">컴퓨터 이름은 비워 둘 수 없습니다. 이름을 입력하거나 대화상자를 취소하세요.</translation>
     </message>
     <message>
         <source>Screen name matches alias</source>
-        <translation>컴퓨터 이름과 별칭이 일치합니다</translation>
+        <translation type="vanished">컴퓨터 이름과 별칭이 일치합니다</translation>
     </message>
     <message>
         <source>The screen name cannot be the same as an alias. Please either remove the alias or change the screen name.</source>
-        <translation>컴퓨터 이름은 별칭과 같을 수 없습니다. 별칭을 삭제하거나 컴퓨터 이름을 변경하세요.</translation>
-    </message>
-    <message>
-        <source>&amp;Preset</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Default</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Windows → Mac</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Mac → Windows</source>
-        <translation type="unfinished"></translation>
+        <translation type="vanished">컴퓨터 이름은 별칭과 같을 수 없습니다. 별칭을 삭제하거나 컴퓨터 이름을 변경하세요.</translation>
     </message>
 </context>
 <context>
     <name>ScreenSetupModel</name>
     <message>
         <source>&lt;center&gt;Screen: &lt;b&gt;%1&lt;/b&gt;&lt;/center&gt;&lt;br&gt;Double click to edit settings&lt;br&gt;Drag screen to the trashcan to remove it</source>
-        <translation>&lt;center&gt;컴퓨터: &lt;b&gt;%1&lt;/b&gt;&lt;/center&gt;&lt;br&gt;더블 클릭하여 설정 편집&lt;br&gt;휴지통으로 드래그하여 삭제</translation>
+        <translation type="vanished">&lt;center&gt;컴퓨터: &lt;b&gt;%1&lt;/b&gt;&lt;/center&gt;&lt;br&gt;더블 클릭하여 설정 편집&lt;br&gt;휴지통으로 드래그하여 삭제</translation>
     </message>
 </context>
 <context>
@@ -1083,31 +1367,31 @@ Additionally, check you are able to %1 the server config file: %2</source>
     </message>
     <message>
         <source>&amp;Dead corners (for this computer)</source>
-        <translation>화면 걸림 방지(&amp;D) (이 컴퓨터)</translation>
+        <translation type="vanished">화면 걸림 방지(&amp;D) (이 컴퓨터)</translation>
     </message>
     <message>
         <source>&amp;Bottom-left</source>
-        <translation>왼쪽 아래(&amp;B)</translation>
+        <translation type="vanished">왼쪽 아래(&amp;B)</translation>
     </message>
     <message>
         <source>To&amp;p-left</source>
-        <translation>왼쪽 위(&amp;P)</translation>
+        <translation type="vanished">왼쪽 위(&amp;P)</translation>
     </message>
     <message>
         <source>Bottom-ri&amp;ght</source>
-        <translation>오른쪽 아래(&amp;G)</translation>
+        <translation type="vanished">오른쪽 아래(&amp;G)</translation>
     </message>
     <message>
         <source>Top-rig&amp;ht</source>
-        <translation>오른쪽 위(&amp;H)</translation>
+        <translation type="vanished">오른쪽 위(&amp;H)</translation>
     </message>
     <message>
         <source>Cor&amp;ner size</source>
-        <translation>모서리 크기(&amp;N)</translation>
+        <translation type="vanished">모서리 크기(&amp;N)</translation>
     </message>
     <message>
         <source>px</source>
-        <translation>픽셀</translation>
+        <translation type="vanished">픽셀</translation>
     </message>
     <message>
         <source>&amp;Misc</source>
@@ -1175,11 +1459,11 @@ Additionally, check you are able to %1 the server config file: %2</source>
     </message>
     <message>
         <source>Config file</source>
-        <translation>설정 파일</translation>
+        <translation type="vanished">설정 파일</translation>
     </message>
     <message>
         <source>Core server config file</source>
-        <translation>코어 서버 설정 파일</translation>
+        <translation type="vanished">코어 서버 설정 파일</translation>
     </message>
     <message>
         <source>Use a server config file to create complex computer layouts that are not possible with the simple grid-based computer layout editor.
@@ -1275,35 +1559,35 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>Fatal</source>
-        <translation>치명적 오류</translation>
+        <translation type="vanished">치명적 오류</translation>
     </message>
     <message>
         <source>Error</source>
-        <translation>오류</translation>
+        <translation type="vanished">오류</translation>
     </message>
     <message>
         <source>Warning</source>
-        <translation>경고</translation>
+        <translation type="vanished">경고</translation>
     </message>
     <message>
         <source>Note</source>
-        <translation>안내</translation>
+        <translation type="vanished">안내</translation>
     </message>
     <message>
         <source>Info</source>
-        <translation>정보</translation>
+        <translation type="vanished">정보</translation>
     </message>
     <message>
         <source>Debug</source>
-        <translation>디버그</translation>
+        <translation type="vanished">디버그</translation>
     </message>
     <message>
         <source>Debug1</source>
-        <translation>디버그1</translation>
+        <translation type="vanished">디버그1</translation>
     </message>
     <message>
         <source>Debug2</source>
-        <translation>디버그2</translation>
+        <translation type="vanished">디버그2</translation>
     </message>
     <message>
         <source>Log path</source>
@@ -1311,7 +1595,7 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>Using a Debug log level may affect performance. Only use a Debug level if you are attempting to debug an issue or are gathering logs to submit with a bug report.</source>
-        <translation>디버그 로그 레벨은 성능에 영향을 줄 수 있습니다. 문제를 디버깅하거나 버그 신고에 첨부할 로그를 수집할 때만 디버그 레벨을 사용하세요.</translation>
+        <translation type="vanished">디버그 로그 레벨은 성능에 영향을 줄 수 있습니다. 문제를 디버깅하거나 버그 신고에 첨부할 로그를 수집할 때만 디버그 레벨을 사용하세요.</translation>
     </message>
     <message>
         <source>Enable GUI debug messages</source>
@@ -1346,6 +1630,14 @@ Enabling this setting will disable the server config GUI.</source>
         <translation>로그 파일 저장 위치...</translation>
     </message>
     <message>
+        <source>%1 Clear Settings</source>
+        <translation type="unfinished">%1 설정 초기화</translation>
+    </message>
+    <message>
+        <source>&lt;p&gt;Are you sure you want to clear all settings and restart %1?&lt;/p&gt; &lt;p&gt;This action cannot be undone.&lt;/p&gt;</source>
+        <translation type="unfinished">&lt;p&gt;모든 설정을 지우고 %1을(를) 다시 시작하시겠습니까?&lt;/p&gt; &lt;p&gt;이 작업은 되돌릴 수 없습니다.&lt;/p&gt;</translation>
+    </message>
+    <message>
         <source>Required messages</source>
         <translation>필수 메시지</translation>
     </message>
@@ -1359,7 +1651,7 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>Notable events</source>
-        <translation>주요 이벤트</translation>
+        <translation type="vanished">주요 이벤트</translation>
     </message>
     <message>
         <source>General events [Default]</source>
@@ -1371,7 +1663,7 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>More debug output</source>
-        <translation>더 많은 디버그 출력</translation>
+        <translation type="vanished">더 많은 디버그 출력</translation>
     </message>
     <message>
         <source>Verbose debug output</source>
@@ -1379,27 +1671,27 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>Close and save changes</source>
-        <translation>변경 사항 저장 후 닫기</translation>
+        <translation type="vanished">변경 사항 저장 후 닫기</translation>
     </message>
     <message>
         <source>Close and forget changes</source>
-        <translation>저장하지 않고 닫기</translation>
+        <translation type="vanished">저장하지 않고 닫기</translation>
     </message>
     <message>
         <source>Reset to stored values</source>
-        <translation type="unfinished">저장된 값으로 재설정</translation>
+        <translation type="obsolete">저장된 값으로 재설정</translation>
     </message>
     <message>
         <source>Reset to default values</source>
-        <translation type="unfinished">기본값으로 재설정</translation>
+        <translation type="obsolete">기본값으로 재설정</translation>
     </message>
     <message>
         <source>Enable wl-clipboard support</source>
-        <translation>wl-clipboard 지원 사용</translation>
+        <translation type="vanished">wl-clipboard 지원 사용</translation>
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Requires the wl-clipboard package&lt;/p&gt;&lt;p&gt;When using wl-clipboard v2.2.1, there is a focus stealing bug that may make Deskflow harder to use. This has been fixed when using the wl-clipboard master branch, unless your Compositor lacks wlroots-data-control protocol support.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;wl-clipboard 패키지가 필요합니다.&lt;/p&gt;&lt;p&gt;wl-clipboard v2.2.1 사용 시 포커스 탈취 버그로 인해 Deskflow 사용이 어려워질 수 있습니다. 이 문제는 wl-clipboard master 브랜치를 사용하면 해결되지만, 사용 중인 컴포지터가 wlroots-data-control 프로토콜을 지원하지 않으면 해결이 안 될 수 있습니다.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+        <translation type="vanished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;wl-clipboard 패키지가 필요합니다.&lt;/p&gt;&lt;p&gt;wl-clipboard v2.2.1 사용 시 포커스 탈취 버그로 인해 Deskflow 사용이 어려워질 수 있습니다. 이 문제는 wl-clipboard master 브랜치를 사용하면 해결되지만, 사용 중인 컴포지터가 wlroots-data-control 프로토콜을 지원하지 않으면 해결이 안 될 수 있습니다.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>Automatic</source>
@@ -1470,16 +1762,51 @@ Enabling this setting will disable the server config GUI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Nodes with the same token will auto-discover each other. Leave empty to use your username.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Enable file transfer via clipboard</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Allow copying and pasting files between machines (deferred transfer on paste)</source>
+        <source>Using a log level higher than Info may affect performance.</source>
+        <translation type="unfinished">Info보다 높은 로그 레벨을 사용하면 성능에 영향을 미칠 수 있습니다.</translation>
+    </message>
+    <message>
+        <source>Remove all settings</source>
+        <translation type="unfinished">모든 설정 제거</translation>
+    </message>
+    <message>
+        <source>Computers with the same token find each other automatically. Use the same token on all your computers; clear it to generate a new one from your user name.</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Offer files copied on this computer to others, and accept files copied on other computers. Files are only transferred when you paste.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SettingsDialogButtonBox</name>
+    <message>
+        <source>Settings are read only</source>
+        <translation type="unfinished">설정은 읽기 전용입니다</translation>
+    </message>
+    <message>
+        <source>%1 is not writable</source>
+        <translation type="unfinished">%1은(는) 쓰기 가능하지 않습니다</translation>
+    </message>
+    <message>
+        <source>Close and save changes</source>
+        <translation type="unfinished">변경 사항 저장 후 닫기</translation>
+    </message>
+    <message>
+        <source>Close and forget changes</source>
+        <translation type="unfinished">저장하지 않고 닫기</translation>
+    </message>
+    <message>
+        <source>Reset to stored values</source>
+        <translation type="unfinished">저장된 값으로 재설정</translation>
+    </message>
+    <message>
+        <source>Reset to default values</source>
+        <translation type="unfinished">기본값으로 재설정</translation>
     </message>
 </context>
 <context>
@@ -1551,7 +1878,7 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>%1 is waiting %2 seconds before the next retry</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">%1이 다음 재시도까지 %2초 대기 중입니다</translation>
     </message>
 </context>
 <context>
@@ -1589,22 +1916,41 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
 </context>
 <context>
-    <name>validators::ScreenNameValidator</name>
+    <name>validators::ComputerLineNameValidator</name>
     <message>
         <source>Computer name cannot be empty</source>
-        <translation>컴퓨터 이름은 비워 둘 수 없습니다</translation>
+        <translation type="unfinished">컴퓨터 이름은 비워 둘 수 없습니다</translation>
     </message>
     <message>
         <source>Computer name cannot contain spaces</source>
-        <translation>컴퓨터 이름에는 공백을 포함할 수 없습니다</translation>
+        <translation type="unfinished">컴퓨터 이름에는 공백을 포함할 수 없습니다</translation>
     </message>
     <message>
         <source>Contains invalid characters or is too long</source>
-        <translation>유효하지 않은 문자가 포함되어 있거나 너무 깁니다</translation>
+        <translation type="unfinished">유효하지 않은 문자가 포함되어 있거나 너무 깁니다</translation>
     </message>
     <message>
         <source>A computer with this name already exists</source>
-        <translation>동명의 컴퓨터가 이미 존재합니다</translation>
+        <translation type="unfinished">동명의 컴퓨터가 이미 존재합니다</translation>
+    </message>
+</context>
+<context>
+    <name>validators::ScreenNameValidator</name>
+    <message>
+        <source>Computer name cannot be empty</source>
+        <translation type="vanished">컴퓨터 이름은 비워 둘 수 없습니다</translation>
+    </message>
+    <message>
+        <source>Computer name cannot contain spaces</source>
+        <translation type="vanished">컴퓨터 이름에는 공백을 포함할 수 없습니다</translation>
+    </message>
+    <message>
+        <source>Contains invalid characters or is too long</source>
+        <translation type="vanished">유효하지 않은 문자가 포함되어 있거나 너무 깁니다</translation>
+    </message>
+    <message>
+        <source>A computer with this name already exists</source>
+        <translation type="vanished">동명의 컴퓨터가 이미 존재합니다</translation>
     </message>
 </context>
 </TS>

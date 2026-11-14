@@ -590,7 +590,7 @@
                <string>Shared secret for peer discovery</string>
               </property>
               <property name="toolTip">
-               <string>Nodes with the same token will auto-discover each other. Leave empty to use your username.</string>
+               <string>Computers with the same token find each other automatically. Use the same token on all your computers; clear it to generate a new one from your user name.</string>
               </property>
              </widget>
             </item>
@@ -602,7 +602,7 @@
              <string>Enable file transfer via clipboard</string>
             </property>
             <property name="toolTip">
-             <string>Allow copying and pasting files between machines (deferred transfer on paste)</string>
+             <string>Offer files copied on this computer to others, and accept files copied on other computers. Files are only transferred when you paste.</string>
             </property>
            </widget>
           </item>

@@ -136,7 +136,7 @@ p, li { white-space: pre-wrap; }
     </message>
     <message>
         <source>Switch to </source>
-        <translation>切换到 </translation>
+        <translation type="vanished">切换到 </translation>
     </message>
 </context>
 <context>
@@ -171,82 +171,264 @@ p, li { white-space: pre-wrap; }
     </message>
     <message>
         <source>Close and save changes</source>
-        <translation type="unfinished">关闭并保存更改</translation>
+        <translation type="obsolete">关闭并保存更改</translation>
     </message>
     <message>
         <source>Close and forget changes</source>
-        <translation>关闭并放弃修改</translation>
+        <translation type="vanished">关闭并放弃修改</translation>
     </message>
     <message>
         <source>Reset to stored values</source>
-        <translation type="unfinished">重置为存储值</translation>
+        <translation type="obsolete">重置为存储值</translation>
     </message>
     <message>
         <source>Reset to default values</source>
-        <translation type="unfinished">重置为默认值</translation>
+        <translation type="obsolete">重置为默认值</translation>
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Allow the client to slow the rate it attempts to reconnect to the server when connections attempts are failing. The delay between connection attempts will  start at 1 second intervals and can be a maxium of 5 minutes between connection attempts.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;允许客户端在连接尝试失败时，降低其重连服务器的频率。连接尝试之间的间隔将从 1 秒开始，最长可达 5 分钟。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>Use dynamic reconnection time based on connection attempts</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">根据连接尝试次数，采用动态重连时间</translation>
+    </message>
+    <message>
+        <source>Clear Server History</source>
+        <translation type="unfinished">清除服务器历史记录</translation>
+    </message>
+</context>
+<context>
+    <name>ComputerSettingsDialog</name>
+    <message>
+        <source>Computer settings</source>
+        <translation type="unfinished">计算机设置</translation>
+    </message>
+    <message>
+        <source>Computer Info</source>
+        <translation type="unfinished">计算机信息</translation>
+    </message>
+    <message>
+        <source>Name</source>
+        <translation type="unfinished">名称</translation>
+    </message>
+    <message>
+        <source>Modifier Keys</source>
+        <translation type="unfinished">修饰键</translation>
+    </message>
+    <message>
+        <source>&amp;Preset</source>
+        <translation>预设(&amp;P)</translation>
+    </message>
+    <message>
+        <source>Default</source>
+        <translation>默认</translation>
+    </message>
+    <message>
+        <source>Windows → Mac</source>
+        <translation>Windows → Mac</translation>
+    </message>
+    <message>
+        <source>Mac → Windows</source>
+        <translation>Mac → Windows</translation>
+    </message>
+    <message>
+        <source>M&amp;eta</source>
+        <translation type="unfinished">M&amp;eta</translation>
+    </message>
+    <message>
+        <source>&amp;Ctrl</source>
+        <translation type="unfinished">&amp;Ctrl</translation>
+    </message>
+    <message>
+        <source>S&amp;uper</source>
+        <translation type="unfinished">S&amp;uper</translation>
+    </message>
+    <message>
+        <source>Al&amp;t</source>
+        <translation type="unfinished">Al&amp;t</translation>
+    </message>
+    <message>
+        <source>Shift</source>
+        <translation type="unfinished">Shift</translation>
+    </message>
+    <message>
+        <source>Ctrl</source>
+        <translation type="unfinished">Ctrl</translation>
+    </message>
+    <message>
+        <source>Alt</source>
+        <translation type="unfinished">Alt</translation>
+    </message>
+    <message>
+        <source>Meta</source>
+        <translation type="unfinished">Meta</translation>
+    </message>
+    <message>
+        <source>Super</source>
+        <translation type="unfinished">Super</translation>
+    </message>
+    <message>
+        <source>Alt Gr</source>
+        <translation type="unfinished">Alt Gr</translation>
+    </message>
+    <message>
+        <source>None</source>
+        <translation type="unfinished">无</translation>
+    </message>
+    <message>
+        <source>&amp;Shift</source>
+        <translation type="unfinished">&amp;Shift</translation>
+    </message>
+    <message>
+        <source>Alt &amp;Gr</source>
+        <translation type="unfinished">Alt &amp;Gr</translation>
+    </message>
+    <message>
+        <source>Dead Corners</source>
+        <translation type="unfinished">屏幕死角</translation>
+    </message>
+    <message>
+        <source>Top Left</source>
+        <translation type="unfinished">左上</translation>
+    </message>
+    <message>
+        <source>Top Right</source>
+        <translation type="unfinished">右上</translation>
+    </message>
+    <message>
+        <source>Corner si&amp;ze</source>
+        <translation type="unfinished">角落大小(&amp;Z)</translation>
+    </message>
+    <message>
+        <source>Bottom Left</source>
+        <translation type="unfinished">左下</translation>
+    </message>
+    <message>
+        <source>Bottom Right</source>
+        <translation type="unfinished">右下</translation>
+    </message>
+    <message>
+        <source>Fixes</source>
+        <translation type="unfinished">修正</translation>
+    </message>
+    <message>
+        <source>SCROLL LOCK key</source>
+        <translation type="unfinished">SCROLL LOCK 键</translation>
+    </message>
+    <message>
+        <source>CAPS LOCK key</source>
+        <translation type="unfinished">CAPS LOCK 键</translation>
+    </message>
+    <message>
+        <source>NUM LOCK key</source>
+        <translation type="unfinished">NUM LOCK 键</translation>
+    </message>
+    <message>
+        <source>XTest for Xinerama</source>
+        <translation type="unfinished">用于 Xinerama 的 XTest</translation>
+    </message>
+    <message>
+        <source>X11 computers Only, When enabled the client will not give focus to its focused window as soon as the client is switched to. This can help prevent unwanted focus stealing with some X11 setups.</source>
+        <translation type="unfinished">仅限 X11 系统：启用此选项后，当切换到该客户端时，其当前获得焦点的窗口不会立即获取焦点。这有助于在某些 X11 配置下防止意外的焦点抢占。</translation>
+    </message>
+    <message>
+        <source>Weaken X11 Focus</source>
+        <translation type="unfinished">弱化 X11 焦点</translation>
+    </message>
+    <message>
+        <source>Aliases</source>
+        <translation type="unfinished">别名</translation>
+    </message>
+    <message>
+        <source>&amp;Add</source>
+        <translation type="unfinished">添加(&amp;A)</translation>
+    </message>
+    <message>
+        <source>&amp;Remove</source>
+        <translation type="unfinished">移除(&amp;R)</translation>
+    </message>
+    <message>
+        <source>Custom</source>
+        <translation>自定义</translation>
+    </message>
+    <message>
+        <source>Computer name is empty</source>
+        <translation type="unfinished">计算机名称为空</translation>
+    </message>
+    <message>
+        <source>The computer name cannot be empty. Please either fill in a name or cancel the dialog.</source>
+        <translation type="unfinished">计算机名称不能为空。请填写名称或取消对话框。</translation>
+    </message>
+    <message>
+        <source>Computer name matches alias</source>
+        <translation type="unfinished">计算机名称与别名匹配</translation>
+    </message>
+    <message>
+        <source>The computer name cannot be the same as an alias. Please either remove the alias or change the computer name.</source>
+        <translation type="unfinished">计算机名称不能与别名相同。请删除别名或更改计算机名称。</translation>
+    </message>
+</context>
+<context>
+    <name>ComputerSetupModel</name>
+    <message>
+        <source>&lt;center&gt;Computer: &lt;b&gt;%1&lt;/b&gt;&lt;/center&gt;&lt;br&gt;Double click to edit settings&lt;br&gt;Drag computer to the trashcan to remove it</source>
+        <translation type="unfinished">&lt;center&gt;计算机：&lt;b&gt;%1&lt;/b&gt;&lt;/center&gt;&lt;br&gt;双击以编辑设置&lt;br&gt;将计算机拖至废纸篓以将其移除</translation>
     </message>
 </context>
 <context>
     <name>FileTransferDialog</name>
     <message>
         <source>File Transfer</source>
-        <translation type="unfinished"></translation>
+        <translation>文件传输</translation>
     </message>
     <message>
         <source>Transferring files...</source>
-        <translation type="unfinished"></translation>
+        <translation>正在传输文件…</translation>
     </message>
     <message>
         <source>Current file:</source>
-        <translation type="unfinished"></translation>
+        <translation>当前文件：</translation>
     </message>
     <message>
         <source>Overall:</source>
-        <translation type="unfinished"></translation>
+        <translation>总进度：</translation>
     </message>
     <message>
         <source>Cancel</source>
-        <translation type="unfinished"></translation>
+        <translation>取消</translation>
     </message>
     <message>
         <source>Close</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">关闭</translation>
     </message>
     <message>
         <source>Transfer complete</source>
-        <translation type="unfinished"></translation>
+        <translation>传输完成</translation>
     </message>
     <message>
         <source>Error: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>错误：%1</translation>
     </message>
     <message>
         <source>File: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>文件：%1</translation>
     </message>
     <message>
         <source>%1 / %2 MB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 / %2 MB</translation>
     </message>
     <message>
         <source>%1 / %2 KB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 / %2 KB</translation>
     </message>
     <message>
         <source>%1 / %2 bytes</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 / %2 字节</translation>
     </message>
     <message>
         <source>Transferring files (%1/%2)...</source>
-        <translation type="unfinished"></translation>
+        <translation>正在传输文件（%1/%2）…</translation>
     </message>
 </context>
 <context>
@@ -330,6 +512,17 @@ Do you want to connect to the server?
     </message>
 </context>
 <context>
+    <name>HelpDialog</name>
+    <message>
+        <source>%1 Help</source>
+        <translation type="unfinished">%1 帮助</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation type="unfinished">关闭</translation>
+    </message>
+</context>
+<context>
     <name>HotkeyDialog</name>
     <message>
         <source>Hotkey</source>
@@ -357,6 +550,33 @@ Do you want to connect to the server?
     <message>
         <source>Attach to window</source>
         <translation>吸附到窗口</translation>
+    </message>
+</context>
+<context>
+    <name>LogLevel</name>
+    <message>
+        <source>Fatal</source>
+        <translation type="unfinished">致命</translation>
+    </message>
+    <message>
+        <source>Error</source>
+        <translation type="unfinished">错误</translation>
+    </message>
+    <message>
+        <source>Warning</source>
+        <translation type="unfinished">警告</translation>
+    </message>
+    <message>
+        <source>Info</source>
+        <translation type="unfinished">信息</translation>
+    </message>
+    <message>
+        <source>Debug</source>
+        <translation type="unfinished">调试</translation>
+    </message>
+    <message>
+        <source>Verbose</source>
+        <translation type="unfinished">冗长的</translation>
     </message>
 </context>
 <context>
@@ -450,8 +670,34 @@ Do you want to connect to the server?
         <translation>断开</translation>
     </message>
     <message>
+        <source>Enable Finder Extension</source>
+        <translation>启用访达扩展</translation>
+    </message>
+    <message>
+        <source>AutoDeskflow includes a Finder extension that adds
+&quot;Paste N Items from &lt;machine&gt;&quot; to the right-click menu.
+
+Would you like to enable it now?</source>
+        <translation>AutoDeskflow 自带一个访达扩展，会在右键菜单中加入
+“从 &lt;机器&gt; 粘贴 N 项”。
+
+现在启用吗？</translation>
+    </message>
+    <message>
         <source>&lt;p&gt;Failed to connect to the server &apos;%1&apos;.&lt;/p&gt;&lt;p&gt;A Client with your name is already connected to the server.&lt;/p&gt;Please ensure that you&apos;re using a unique name and that only a single instance of the client process is running.&lt;/p&gt;</source>
         <translation>&lt;p&gt;连接到服务器“%1”失败。&lt;/p&gt;&lt;p&gt;一个同名的客户端已连接到服务器。&lt;/p&gt;请确保您使用的名称唯一，且只有一个客户端进程实例在运行。&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <source>View &amp;Help</source>
+        <translation type="unfinished">查看帮助(&amp;H)</translation>
+    </message>
+    <message>
+        <source>Invalid Computer Name</source>
+        <translation>计算机名称无效</translation>
+    </message>
+    <message>
+        <source>Computer name already exists</source>
+        <translation>计算机名称已存在</translation>
     </message>
     <message>
         <source>No IP Detected</source>
@@ -501,11 +747,11 @@ A bound IP is now invalid, you may need to restart the server.</source>
     </message>
     <message>
         <source>Clear settings</source>
-        <translation>清除设置</translation>
+        <translation type="vanished">清除设置</translation>
     </message>
     <message>
         <source>Report a Bug</source>
-        <translation>报告 Bug</translation>
+        <translation type="vanished">报告 Bug</translation>
     </message>
     <message>
         <source>&amp;Minimize to tray</source>
@@ -554,11 +800,11 @@ A bound IP is now invalid, you may need to restart the server.</source>
     </message>
     <message>
         <source>Invalid Screen Name</source>
-        <translation>无效的屏幕名称</translation>
+        <translation type="vanished">无效的屏幕名称</translation>
     </message>
     <message>
         <source>Screen name already exists</source>
-        <translation>屏幕名称已存在</translation>
+        <translation type="vanished">屏幕名称已存在</translation>
     </message>
     <message>
         <source>The name you have chosen is invalid.
@@ -616,64 +862,91 @@ Additionally, check you are able to %1 the server config file: %2</source>
     </message>
     <message>
         <source>Become &amp;Host</source>
-        <translation type="unfinished"></translation>
+        <translation>成为主机(&amp;H)</translation>
     </message>
     <message>
         <source>Take control as the host (Ctrl+Alt+H)</source>
-        <translation type="unfinished"></translation>
+        <translation>由本机接管，作为主机（Ctrl+Alt+H）</translation>
     </message>
     <message>
         <source>Discovered peers</source>
-        <translation type="unfinished"></translation>
+        <translation>已发现的计算机</translation>
     </message>
     <message>
         <source>&amp;Become Host	Ctrl+Alt+H</source>
-        <translation type="unfinished"></translation>
+        <translation>成为主机(&amp;B)	Ctrl+Alt+H</translation>
     </message>
     <message>
         <source>Ctrl+Alt+H</source>
-        <translation type="unfinished"></translation>
+        <translation>Ctrl+Alt+H</translation>
+    </message>
+    <message>
+        <source>Automatic discovery is not working: %1</source>
+        <translation>自动发现不可用：%1</translation>
+    </message>
+    <message>
+        <source>Looking for other computers on this network.
+They show up here once they run AutoDeskflow with the same Group Token (Preferences).</source>
+        <translation>正在查找本网络中的其他计算机。
+其他计算机运行 AutoDeskflow 并使用相同的组令牌（见首选项）后会显示在这里。</translation>
     </message>
     <message>
         <source>Discovered peers:
 %1</source>
-        <translation type="unfinished"></translation>
+        <translation>已发现的计算机：
+%1</translation>
+    </message>
+    <message>
+        <source>%1 became the host, this computer will join it</source>
+        <translation>%1 已成为主机，本机将加入</translation>
+    </message>
+    <message>
+        <source>Connecting to the host at %1</source>
+        <translation>正在连接主机 %1</translation>
     </message>
     <message>
         <source>%1 file(s) from %2 (%3)</source>
-        <translation type="unfinished"></translation>
+        <translation>来自 %2 的 %1 个文件（%3）</translation>
     </message>
     <message>
         <source> - paste to transfer</source>
-        <translation type="unfinished"></translation>
+        <translation> - 粘贴即开始传输</translation>
     </message>
     <message>
         <source>Image from %1 (%2)</source>
-        <translation type="unfinished"></translation>
+        <translation>来自 %1 的图片（%2）</translation>
     </message>
     <message>
         <source>Text from %1 (%2)</source>
-        <translation type="unfinished"></translation>
+        <translation>来自 %1 的文本（%2）</translation>
     </message>
     <message>
         <source>HTML from %1 (%2)</source>
-        <translation type="unfinished"></translation>
+        <translation>来自 %1 的 HTML（%2）</translation>
     </message>
     <message>
         <source>Clipboard from %1 (%2)</source>
-        <translation type="unfinished"></translation>
+        <translation>来自 %1 的剪贴板（%2）</translation>
     </message>
     <message>
         <source>Missing Keyboard Layouts</source>
-        <translation type="unfinished"></translation>
+        <translation>缺少键盘布局</translation>
     </message>
     <message>
         <source>&lt;p&gt;Keyboard layout support requires matching layouts on all computers. The following layouts from the other computer are not installed on this computer:&lt;/p&gt;&lt;p&gt;&lt;b&gt;%1&lt;/b&gt;&lt;/p&gt;&lt;p&gt;Please install them to enable support for these layouts.&lt;/p&gt;</source>
-        <translation type="unfinished"></translation>
+        <translation>&lt;p&gt;键盘布局同步要求所有计算机安装相同的布局。另一台计算机上的以下布局在本机上未安装：&lt;/p&gt;&lt;p&gt;&lt;b&gt;%1&lt;/b&gt;&lt;/p&gt;&lt;p&gt;请安装这些布局以启用对它们的支持。&lt;/p&gt;</translation>
     </message>
     <message>
         <source>Don&apos;t show this again</source>
-        <translation type="unfinished"></translation>
+        <translation>不再显示</translation>
+    </message>
+</context>
+<context>
+    <name>NewComputerWidget</name>
+    <message>
+        <source>Unnamed</source>
+        <extracomment>Used as the hostname. Translation may not contain spaces</extracomment>
+        <translation type="unfinished">未命名</translation>
     </message>
 </context>
 <context>
@@ -681,7 +954,7 @@ Additionally, check you are able to %1 the server config file: %2</source>
     <message>
         <source>Unnamed</source>
         <extracomment>Used as the hostname. Translation may not contain spaces</extracomment>
-        <translation>未命名</translation>
+        <translation type="vanished">未命名</translation>
     </message>
 </context>
 <context>
@@ -761,8 +1034,12 @@ Additionally, check you are able to %1 the server config file: %2</source>
         <translation>%1 - 新客户端</translation>
     </message>
     <message>
+        <source>A new client called &apos;%1&apos; has been accepted. You&apos;ll need to add it to your server&apos;s computer layout.</source>
+        <translation>已接受名为“%1”的新客户端。请将它加入服务器的计算机布局中。</translation>
+    </message>
+    <message>
         <source>A new client called &apos;%1&apos; has been accepted. You&apos;ll need to add it to your server&apos;s screen layout.</source>
-        <translation type="unfinished">已接受名为“%1”的新客户端。您需要将其添加到服务器的屏幕布局中。</translation>
+        <translation type="obsolete">已接受名为“%1”的新客户端。您需要将其添加到服务器的屏幕布局中。</translation>
     </message>
     <message>
         <source>Ignore</source>
@@ -778,19 +1055,19 @@ Additionally, check you are able to %1 the server config file: %2</source>
     </message>
     <message>
         <source>%1 Clear Settings</source>
-        <translation>%1 清除设置</translation>
+        <translation type="vanished">%1 清除设置</translation>
     </message>
     <message>
         <source>&lt;p&gt;Are you sure you want to clear all settings and restart %1?&lt;/p&gt;&lt;p&gt;This action cannot be undone.&lt;/p&gt;</source>
-        <translation>&lt;p&gt;您确定要清除所有设置并重启 %1 吗？&lt;/p&gt;&lt;p&gt;此操作无法撤销。&lt;/p&gt;</translation>
+        <translation type="vanished">&lt;p&gt;您确定要清除所有设置并重启 %1 吗？&lt;/p&gt;&lt;p&gt;此操作无法撤销。&lt;/p&gt;</translation>
     </message>
     <message>
         <source>%1 Read-only settings</source>
-        <translation>%1 只读设置</translation>
+        <translation type="vanished">%1 只读设置</translation>
     </message>
     <message>
         <source>&lt;p&gt;Settings are read-only because you only have read access to the file:&lt;/p&gt;&lt;p&gt;%1&lt;/p&gt;</source>
-        <translation>&lt;p&gt;设置是只读的，因为您对该文件只有读取权限：&lt;/p&gt;&lt;p&gt;%1&lt;/p&gt;</translation>
+        <translation type="vanished">&lt;p&gt;设置是只读的，因为您对该文件只有读取权限：&lt;/p&gt;&lt;p&gt;%1&lt;/p&gt;</translation>
     </message>
     <message>
         <source>No thanks</source>
@@ -843,163 +1120,175 @@ Additionally, check you are able to %1 the server config file: %2</source>
         <source>%1 is already running</source>
         <translation>%1 已经在运行中</translation>
     </message>
+    <message>
+        <source>Shift</source>
+        <translation type="unfinished">Shift</translation>
+    </message>
+    <message>
+        <source>Ctrl</source>
+        <translation type="unfinished">Ctrl</translation>
+    </message>
+    <message>
+        <source>Alt</source>
+        <translation type="unfinished">Alt</translation>
+    </message>
+    <message>
+        <source>Meta</source>
+        <translation type="unfinished">Meta</translation>
+    </message>
+    <message>
+        <source>Super</source>
+        <translation type="unfinished">Super</translation>
+    </message>
+    <message>
+        <source>AltGr</source>
+        <translation type="unfinished">AltGr</translation>
+    </message>
+    <message>
+        <source>None</source>
+        <translation type="unfinished">无</translation>
+    </message>
 </context>
 <context>
     <name>ScreenSettingsDialog</name>
     <message>
         <source>Computer settings</source>
-        <translation>计算机设置</translation>
+        <translation type="vanished">计算机设置</translation>
     </message>
     <message>
         <source>Computer Info</source>
-        <translation>计算机信息</translation>
+        <translation type="vanished">计算机信息</translation>
     </message>
     <message>
         <source>Name</source>
-        <translation>名称</translation>
+        <translation type="vanished">名称</translation>
     </message>
     <message>
         <source>Modifier Keys</source>
-        <translation>修饰键</translation>
+        <translation type="vanished">修饰键</translation>
     </message>
     <message>
         <source>M&amp;eta</source>
-        <translation>M&amp;eta</translation>
+        <translation type="vanished">M&amp;eta</translation>
     </message>
     <message>
         <source>&amp;Ctrl</source>
-        <translation>&amp;Ctrl</translation>
+        <translation type="vanished">&amp;Ctrl</translation>
     </message>
     <message>
         <source>S&amp;uper</source>
-        <translation>S&amp;uper</translation>
+        <translation type="vanished">S&amp;uper</translation>
     </message>
     <message>
         <source>Al&amp;t</source>
-        <translation>Al&amp;t</translation>
+        <translation type="vanished">Al&amp;t</translation>
     </message>
     <message>
         <source>Shift</source>
-        <translation>Shift</translation>
+        <translation type="vanished">Shift</translation>
     </message>
     <message>
         <source>Ctrl</source>
-        <translation>Ctrl</translation>
+        <translation type="vanished">Ctrl</translation>
     </message>
     <message>
         <source>Alt</source>
-        <translation>Alt</translation>
+        <translation type="vanished">Alt</translation>
     </message>
     <message>
         <source>Meta</source>
-        <translation>Meta</translation>
+        <translation type="vanished">Meta</translation>
     </message>
     <message>
         <source>Super</source>
-        <translation>Super</translation>
+        <translation type="vanished">Super</translation>
     </message>
     <message>
         <source>None</source>
-        <translation>无</translation>
+        <translation type="vanished">无</translation>
     </message>
     <message>
         <source>&amp;Shift</source>
-        <translation>&amp;Shift</translation>
+        <translation type="vanished">&amp;Shift</translation>
     </message>
     <message>
         <source>Dead Corners</source>
-        <translation>屏幕死角</translation>
+        <translation type="vanished">屏幕死角</translation>
     </message>
     <message>
         <source>Top Left</source>
-        <translation>左上</translation>
+        <translation type="vanished">左上</translation>
     </message>
     <message>
         <source>Top Right</source>
-        <translation>右上</translation>
+        <translation type="vanished">右上</translation>
     </message>
     <message>
         <source>Corner si&amp;ze</source>
-        <translation>角落大小(&amp;Z)</translation>
+        <translation type="vanished">角落大小(&amp;Z)</translation>
     </message>
     <message>
         <source>Bottom Left</source>
-        <translation>左下</translation>
+        <translation type="vanished">左下</translation>
     </message>
     <message>
         <source>Bottom Right</source>
-        <translation>右下</translation>
+        <translation type="vanished">右下</translation>
     </message>
     <message>
         <source>Fixes</source>
-        <translation>修正</translation>
+        <translation type="vanished">修正</translation>
     </message>
     <message>
         <source>SCROLL LOCK key</source>
-        <translation>SCROLL LOCK 键</translation>
+        <translation type="vanished">SCROLL LOCK 键</translation>
     </message>
     <message>
         <source>CAPS LOCK key</source>
-        <translation>CAPS LOCK 键</translation>
+        <translation type="vanished">CAPS LOCK 键</translation>
     </message>
     <message>
         <source>NUM LOCK key</source>
-        <translation>NUM LOCK 键</translation>
+        <translation type="vanished">NUM LOCK 键</translation>
     </message>
     <message>
         <source>XTest for Xinerama</source>
-        <translation type="unfinished">用于 Xinerama 的 XTest</translation>
+        <translation type="obsolete">用于 Xinerama 的 XTest</translation>
     </message>
     <message>
         <source>Aliases</source>
-        <translation>别名</translation>
+        <translation type="vanished">别名</translation>
     </message>
     <message>
         <source>&amp;Add</source>
-        <translation>添加(&amp;A)</translation>
+        <translation type="vanished">添加(&amp;A)</translation>
     </message>
     <message>
         <source>&amp;Remove</source>
-        <translation>移除(&amp;R)</translation>
+        <translation type="vanished">移除(&amp;R)</translation>
     </message>
     <message>
         <source>Screen name is empty</source>
-        <translation>屏幕名称为空</translation>
+        <translation type="vanished">屏幕名称为空</translation>
     </message>
     <message>
         <source>The screen name cannot be empty. Please either fill in a name or cancel the dialog.</source>
-        <translation>屏幕名称不能为空。请填写名称或取消对话框。</translation>
+        <translation type="vanished">屏幕名称不能为空。请填写名称或取消对话框。</translation>
     </message>
     <message>
         <source>Screen name matches alias</source>
-        <translation>屏幕名称与别名匹配</translation>
+        <translation type="vanished">屏幕名称与别名匹配</translation>
     </message>
     <message>
         <source>The screen name cannot be the same as an alias. Please either remove the alias or change the screen name.</source>
-        <translation>屏幕名称不能与别名相同。请移除别名或更改屏幕名称。</translation>
-    </message>
-    <message>
-        <source>&amp;Preset</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Default</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Windows → Mac</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Mac → Windows</source>
-        <translation type="unfinished"></translation>
+        <translation type="vanished">屏幕名称不能与别名相同。请移除别名或更改屏幕名称。</translation>
     </message>
 </context>
 <context>
     <name>ScreenSetupModel</name>
     <message>
         <source>&lt;center&gt;Screen: &lt;b&gt;%1&lt;/b&gt;&lt;/center&gt;&lt;br&gt;Double click to edit settings&lt;br&gt;Drag screen to the trashcan to remove it</source>
-        <translation>&lt;center&gt;屏幕：&lt;b&gt;%1&lt;/b&gt;&lt;/center&gt;&lt;br&gt;双击编辑设置&lt;br&gt;将屏幕拖到垃圾桶以移除</translation>
+        <translation type="vanished">&lt;center&gt;屏幕：&lt;b&gt;%1&lt;/b&gt;&lt;/center&gt;&lt;br&gt;双击编辑设置&lt;br&gt;将屏幕拖到垃圾桶以移除</translation>
     </message>
 </context>
 <context>
@@ -1085,31 +1374,31 @@ Additionally, check you are able to %1 the server config file: %2</source>
     </message>
     <message>
         <source>&amp;Dead corners (for this computer)</source>
-        <translation>屏幕死角 (针对此计算机)(&amp;D)</translation>
+        <translation type="vanished">屏幕死角 (针对此计算机)(&amp;D)</translation>
     </message>
     <message>
         <source>&amp;Bottom-left</source>
-        <translation>左下(&amp;B)</translation>
+        <translation type="vanished">左下(&amp;B)</translation>
     </message>
     <message>
         <source>To&amp;p-left</source>
-        <translation>左上(&amp;P)</translation>
+        <translation type="vanished">左上(&amp;P)</translation>
     </message>
     <message>
         <source>Bottom-ri&amp;ght</source>
-        <translation>右下(&amp;G)</translation>
+        <translation type="vanished">右下(&amp;G)</translation>
     </message>
     <message>
         <source>Top-rig&amp;ht</source>
-        <translation>右上(&amp;H)</translation>
+        <translation type="vanished">右上(&amp;H)</translation>
     </message>
     <message>
         <source>Cor&amp;ner size</source>
-        <translation>角落大小(&amp;N)</translation>
+        <translation type="vanished">角落大小(&amp;N)</translation>
     </message>
     <message>
         <source>px</source>
-        <translation>像素</translation>
+        <translation type="vanished">像素</translation>
     </message>
     <message>
         <source>&amp;Misc</source>
@@ -1177,11 +1466,11 @@ Additionally, check you are able to %1 the server config file: %2</source>
     </message>
     <message>
         <source>Config file</source>
-        <translation>配置文件</translation>
+        <translation type="vanished">配置文件</translation>
     </message>
     <message>
         <source>Core server config file</source>
-        <translation>核心服务器配置文件</translation>
+        <translation type="vanished">核心服务器配置文件</translation>
     </message>
     <message>
         <source>Use a server config file to create complex computer layouts that are not possible with the simple grid-based computer layout editor.
@@ -1277,35 +1566,35 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>Fatal</source>
-        <translation>致命</translation>
+        <translation type="vanished">致命</translation>
     </message>
     <message>
         <source>Error</source>
-        <translation>错误</translation>
+        <translation type="vanished">错误</translation>
     </message>
     <message>
         <source>Warning</source>
-        <translation>警告</translation>
+        <translation type="vanished">警告</translation>
     </message>
     <message>
         <source>Note</source>
-        <translation>注意</translation>
+        <translation type="vanished">注意</translation>
     </message>
     <message>
         <source>Info</source>
-        <translation>信息</translation>
+        <translation type="vanished">信息</translation>
     </message>
     <message>
         <source>Debug</source>
-        <translation>调试</translation>
+        <translation type="vanished">调试</translation>
     </message>
     <message>
         <source>Debug1</source>
-        <translation>调试1</translation>
+        <translation type="vanished">调试1</translation>
     </message>
     <message>
         <source>Debug2</source>
-        <translation>调试2</translation>
+        <translation type="vanished">调试2</translation>
     </message>
     <message>
         <source>Log path</source>
@@ -1313,7 +1602,7 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>Using a Debug log level may affect performance. Only use a Debug level if you are attempting to debug an issue or are gathering logs to submit with a bug report.</source>
-        <translation>使用调试日志级别可能会影响性能。仅当您尝试调试问题或收集日志以提交 Bug 报告时，才使用调试级别。</translation>
+        <translation type="vanished">使用调试日志级别可能会影响性能。仅当您尝试调试问题或收集日志以提交 Bug 报告时，才使用调试级别。</translation>
     </message>
     <message>
         <source>Enable GUI debug messages</source>
@@ -1348,6 +1637,14 @@ Enabling this setting will disable the server config GUI.</source>
         <translation>保存日志文件到...</translation>
     </message>
     <message>
+        <source>%1 Clear Settings</source>
+        <translation type="unfinished">%1 清除设置</translation>
+    </message>
+    <message>
+        <source>&lt;p&gt;Are you sure you want to clear all settings and restart %1?&lt;/p&gt; &lt;p&gt;This action cannot be undone.&lt;/p&gt;</source>
+        <translation type="unfinished">&lt;p&gt;您确定要清除所有设置并重新启动 %1 吗？&lt;/p&gt; &lt;p&gt;此操作无法撤销。&lt;/p&gt;</translation>
+    </message>
+    <message>
         <source>Required messages</source>
         <translation>必要消息</translation>
     </message>
@@ -1361,7 +1658,7 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>Notable events</source>
-        <translation>值得注意的事件</translation>
+        <translation type="vanished">值得注意的事件</translation>
     </message>
     <message>
         <source>General events [Default]</source>
@@ -1373,7 +1670,7 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>More debug output</source>
-        <translation>更多调试输出</translation>
+        <translation type="vanished">更多调试输出</translation>
     </message>
     <message>
         <source>Verbose debug output</source>
@@ -1381,27 +1678,27 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>Close and save changes</source>
-        <translation type="unfinished">关闭并保存更改</translation>
+        <translation type="obsolete">关闭并保存更改</translation>
     </message>
     <message>
         <source>Close and forget changes</source>
-        <translation>关闭并放弃修改</translation>
+        <translation type="vanished">关闭并放弃修改</translation>
     </message>
     <message>
         <source>Reset to stored values</source>
-        <translation type="unfinished">重置为存储值</translation>
+        <translation type="obsolete">重置为存储值</translation>
     </message>
     <message>
         <source>Reset to default values</source>
-        <translation type="unfinished">重置为默认值</translation>
+        <translation type="obsolete">重置为默认值</translation>
     </message>
     <message>
         <source>Enable wl-clipboard support</source>
-        <translation>启用 wl-clipboard 支持</translation>
+        <translation type="vanished">启用 wl-clipboard 支持</translation>
     </message>
     <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Requires the wl-clipboard package&lt;/p&gt;&lt;p&gt;When using wl-clipboard v2.2.1, there is a focus stealing bug that may make Deskflow harder to use. This has been fixed when using the wl-clipboard master branch, unless your Compositor lacks wlroots-data-control protocol support.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;需要 wl-clipboard 包&lt;/p&gt;&lt;p&gt;使用 wl-clipboard v2.2.1 时存在一个焦点抢夺 Bug，可能导致 Deskflow 使用不便。该问题已在 wl-clipboard 的 master 分支中修复，除非您的合成器不支持 wlroots-data-control 协议。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+        <translation type="vanished">&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;需要 wl-clipboard 包&lt;/p&gt;&lt;p&gt;使用 wl-clipboard v2.2.1 时存在一个焦点抢夺 Bug，可能导致 Deskflow 使用不便。该问题已在 wl-clipboard 的 master 分支中修复，除非您的合成器不支持 wlroots-data-control 协议。&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>Automatic</source>
@@ -1461,27 +1758,62 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>AutoDeskflow</source>
-        <translation type="unfinished"></translation>
+        <translation>AutoDeskflow</translation>
     </message>
     <message>
         <source>Group Token</source>
-        <translation type="unfinished"></translation>
+        <translation>组令牌</translation>
     </message>
     <message>
         <source>Shared secret for peer discovery</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Nodes with the same token will auto-discover each other. Leave empty to use your username.</source>
-        <translation type="unfinished"></translation>
+        <translation>用于自动发现的共享口令</translation>
     </message>
     <message>
         <source>Enable file transfer via clipboard</source>
-        <translation type="unfinished"></translation>
+        <translation>允许通过剪贴板传输文件</translation>
     </message>
     <message>
-        <source>Allow copying and pasting files between machines (deferred transfer on paste)</source>
-        <translation type="unfinished"></translation>
+        <source>Using a log level higher than Info may affect performance.</source>
+        <translation type="unfinished">使用高于 Info 级别的日志级别可能会影响性能。</translation>
+    </message>
+    <message>
+        <source>Remove all settings</source>
+        <translation type="unfinished">移除所有设置</translation>
+    </message>
+    <message>
+        <source>Computers with the same token find each other automatically. Use the same token on all your computers; clear it to generate a new one from your user name.</source>
+        <translation>使用相同令牌的计算机会自动发现彼此。请在你所有的计算机上填写同一个令牌；清空后会根据用户名重新生成。</translation>
+    </message>
+    <message>
+        <source>Offer files copied on this computer to others, and accept files copied on other computers. Files are only transferred when you paste.</source>
+        <translation>允许其他计算机粘贴本机复制的文件，也允许本机接收其他计算机复制的文件。只有在粘贴时才会真正传输。</translation>
+    </message>
+</context>
+<context>
+    <name>SettingsDialogButtonBox</name>
+    <message>
+        <source>Settings are read only</source>
+        <translation type="unfinished">设置仅为只读</translation>
+    </message>
+    <message>
+        <source>%1 is not writable</source>
+        <translation type="unfinished">%1 不可写入</translation>
+    </message>
+    <message>
+        <source>Close and save changes</source>
+        <translation type="unfinished">关闭并保存更改</translation>
+    </message>
+    <message>
+        <source>Close and forget changes</source>
+        <translation type="unfinished">关闭并放弃修改</translation>
+    </message>
+    <message>
+        <source>Reset to stored values</source>
+        <translation type="unfinished">重置为存储值</translation>
+    </message>
+    <message>
+        <source>Reset to default values</source>
+        <translation type="unfinished">重置为默认值</translation>
     </message>
 </context>
 <context>
@@ -1553,18 +1885,18 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>%1 is waiting %2 seconds before the next retry</source>
-        <translation type="unfinished"></translation>
+        <translation type="unfinished">%1 正在等待 %2 秒，然后进行下一次重试</translation>
     </message>
 </context>
 <context>
     <name>deskflow::gui::discovery::DiscoveryService</name>
     <message>
         <source>Token not set</source>
-        <translation type="unfinished"></translation>
+        <translation>未设置令牌</translation>
     </message>
     <message>
         <source>Failed to bind to discovery port %1: %2</source>
-        <translation type="unfinished"></translation>
+        <translation>无法绑定发现端口 %1：%2</translation>
     </message>
 </context>
 <context>
@@ -1591,22 +1923,41 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
 </context>
 <context>
-    <name>validators::ScreenNameValidator</name>
+    <name>validators::ComputerLineNameValidator</name>
     <message>
         <source>Computer name cannot be empty</source>
-        <translation>计算机名称不能为空</translation>
+        <translation type="unfinished">计算机名称不能为空</translation>
     </message>
     <message>
         <source>Computer name cannot contain spaces</source>
-        <translation>计算机名称不能包含空格</translation>
+        <translation type="unfinished">计算机名称不能包含空格</translation>
     </message>
     <message>
         <source>Contains invalid characters or is too long</source>
-        <translation>包含无效字符或过长</translation>
+        <translation type="unfinished">包含无效字符或过长</translation>
     </message>
     <message>
         <source>A computer with this name already exists</source>
-        <translation>一台同名的计算机已经存在</translation>
+        <translation type="unfinished">一台同名的计算机已经存在</translation>
+    </message>
+</context>
+<context>
+    <name>validators::ScreenNameValidator</name>
+    <message>
+        <source>Computer name cannot be empty</source>
+        <translation type="vanished">计算机名称不能为空</translation>
+    </message>
+    <message>
+        <source>Computer name cannot contain spaces</source>
+        <translation type="vanished">计算机名称不能包含空格</translation>
+    </message>
+    <message>
+        <source>Contains invalid characters or is too long</source>
+        <translation type="vanished">包含无效字符或过长</translation>
+    </message>
+    <message>
+        <source>A computer with this name already exists</source>
+        <translation type="vanished">一台同名的计算机已经存在</translation>
     </message>
 </context>
 </TS>
