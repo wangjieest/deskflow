@@ -236,14 +236,38 @@ bool FileTransfer::appendChunk(FileTransferRequest &request, const std::string &
   return true;
 }
 
-std::string FileTransfer::getTempDirectory()
+std::string FileTransfer::privateTempDirectory(const std::string &name)
 {
+  namespace fs = std::filesystem;
   // temp_directory_path() is Unicode-aware on Windows, unlike GetTempPathA
   std::error_code ec;
-  auto base = std::filesystem::temp_directory_path(ec);
+  auto base = fs::temp_directory_path(ec);
   if (ec)
     base = pathFromUtf8(PATH_SEPARATOR[0] == '\\' ? "C:\\Temp" : "/tmp");
-  return pathToUtf8(base / "autodeskflow-files") + PATH_SEPARATOR;
+
+#ifdef _WIN32
+  const auto dir = base / pathFromUtf8(name);
+  fs::create_directories(dir, ec);
+  return pathToUtf8(dir);
+#else
+  // A fixed name in a shared /tmp could be pre-created by another user to receive our files
+  const auto dir = base / pathFromUtf8(name + "-" + std::to_string(getuid()));
+  fs::create_directory(dir, ec);
+  fs::permissions(dir, fs::perms::owner_all, fs::perm_options::replace, ec);
+  struct stat st{};
+  if (lstat(dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode) && st.st_uid == getuid() && (st.st_mode & 077) == 0)
+    return pathToUtf8(dir);
+
+  std::string pattern = pathToUtf8(base / pathFromUtf8(name + "-XXXXXX"));
+  if (mkdtemp(pattern.data()) != nullptr)
+    return pattern;
+  return pathToUtf8(dir);
+#endif
+}
+
+std::string FileTransfer::getTempDirectory()
+{
+  return privateTempDirectory("autodeskflow-files") + PATH_SEPARATOR;
 }
 
 std::string FileTransfer::createTempFilePath(const std::string &fileName)

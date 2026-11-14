@@ -20,6 +20,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 
+#include <filesystem>
 #include <functional>
 #include <future>
 #include <limits>
@@ -443,6 +444,44 @@ void ClipboardTransferClientTests::swappedPartialFileIsNotFollowed()
   QCOMPARE(requests.size(), 2);
   QVERIFY(!requests[1].contains("OFS1"));
 #endif
+}
+
+void ClipboardTransferClientTests::hardLinkedPartialFileIsNotFollowed()
+{
+  // A hard link passes "is a regular file", so only the link count tells it apart
+  QTemporaryDir victimDir;
+  const auto victim = victimDir.filePath("victim.txt");
+  QFile victimFile(victim);
+  QVERIFY(victimFile.open(QIODevice::WriteOnly));
+  victimFile.write("keep!");
+  victimFile.close();
+
+  const Script first{{chunk(FileChunkType::Start, start("a.txt", 10)) + chunk(FileChunkType::Data, "hello")}};
+  const Script second{
+      {chunk(FileChunkType::Start, start("a.txt", 10, false, 5)) + chunk(FileChunkType::Data, "world") +
+       chunk(FileChunkType::End, {})}
+  };
+  FileDownloadOptions options;
+  options.retryDelay = std::chrono::milliseconds(300);
+  QList<QByteArray> requests;
+  const auto partial = m_dir->filePath("a.txt.pasting");
+  const auto swapForHardLink = [&](size_t index) {
+    if (index != 0)
+      return;
+    QElapsedTimer waited;
+    waited.start();
+    while (QFileInfo(partial).size() != 5 && waited.elapsed() < 3000)
+      QThread::msleep(5);
+    QFile::remove(partial);
+    std::error_code ec;
+    std::filesystem::create_hard_link(victim.toStdString(), partial.toStdString(), ec);
+  };
+
+  downloadScripted({first, second}, "/src/a.txt", m_dir->path(), options, false, &requests, swapForHardLink);
+
+  QCOMPARE(readFile(victim), QByteArray("keep!"));
+  QCOMPARE(requests.size(), 2);
+  QVERIFY(!requests[1].contains("OFS1"));
 }
 
 void ClipboardTransferClientTests::fileWithoutSizeIsRefused()

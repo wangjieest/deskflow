@@ -34,6 +34,7 @@ private Q_SLOTS:
   void resumesAfterDroppedConnection();
   void restartsWhenSourceIgnoresOffset();
   void swappedPartialFileIsNotFollowed();
+  void hardLinkedPartialFileIsNotFollowed();
   void fileWithoutSizeIsRefused();
   void stalledSourceIsDropped();
   void slowButSteadySourceIsKept();

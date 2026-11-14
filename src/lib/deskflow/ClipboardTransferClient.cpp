@@ -17,7 +17,6 @@
 #include <chrono>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <thread>
 #include <vector>
 
@@ -32,6 +31,7 @@
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #define closesocket close
 #define INVALID_SOCKET (-1)
@@ -276,6 +276,118 @@ fs::path uniquePath(const fs::path &path)
   return path;
 }
 
+// Writes the .pasting file through a handle that is verified after opening: never through a link, never into a
+// file that has another name elsewhere. Checking first and opening by name afterwards would leave a race.
+class PartialFile
+{
+public:
+  PartialFile() = default;
+  PartialFile(const PartialFile &) = delete;
+  PartialFile &operator=(const PartialFile &) = delete;
+  ~PartialFile()
+  {
+    close();
+  }
+
+  bool open(const fs::path &path, bool append)
+  {
+#ifdef _WIN32
+    m_handle = CreateFileW(
+        path.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+        nullptr
+    );
+    if (m_handle == INVALID_HANDLE_VALUE)
+      return false;
+    BY_HANDLE_FILE_INFORMATION info{};
+    LARGE_INTEGER zero{};
+    const bool safe = GetFileInformationByHandle(m_handle, &info) &&
+                      !(info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) &&
+                      info.nNumberOfLinks == 1;
+    const bool positioned = safe && (append ? SetFilePointerEx(m_handle, zero, nullptr, FILE_END) != 0
+                                            : SetFilePointerEx(m_handle, zero, nullptr, FILE_BEGIN) != 0 &&
+                                                  SetEndOfFile(m_handle) != 0);
+#else
+    m_fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | (append ? O_APPEND : 0), 0600);
+    if (m_fd < 0)
+      return false;
+    struct stat st{};
+    const bool safe = fstat(m_fd, &st) == 0 && S_ISREG(st.st_mode) && st.st_nlink == 1;
+    const bool positioned = safe && (append || ftruncate(m_fd, 0) == 0);
+#endif
+    if (!positioned) {
+      close();
+      return false;
+    }
+    return true;
+  }
+
+  bool isOpen() const
+  {
+#ifdef _WIN32
+    return m_handle != INVALID_HANDLE_VALUE;
+#else
+    return m_fd >= 0;
+#endif
+  }
+
+  bool write(const uint8_t *data, size_t size)
+  {
+    while (size > 0) {
+#ifdef _WIN32
+      DWORD wrote = 0;
+      const DWORD part = static_cast<DWORD>(std::min<size_t>(size, 1u << 30));
+      if (!WriteFile(m_handle, data, part, &wrote, nullptr) || wrote == 0)
+        return false;
+#else
+      const auto wrote = ::write(m_fd, data, size);
+      if (wrote <= 0) {
+        if (wrote < 0 && errno == EINTR)
+          continue;
+        return false;
+      }
+#endif
+      data += wrote;
+      size -= static_cast<size_t>(wrote);
+    }
+    return true;
+  }
+
+  bool close()
+  {
+    bool ok = true;
+#ifdef _WIN32
+    if (m_handle != INVALID_HANDLE_VALUE) {
+      ok = CloseHandle(m_handle) != 0;
+      m_handle = INVALID_HANDLE_VALUE;
+    }
+#else
+    if (m_fd >= 0) {
+      ok = ::close(m_fd) == 0;
+      m_fd = -1;
+    }
+#endif
+    return ok;
+  }
+
+private:
+#ifdef _WIN32
+  HANDLE m_handle = INVALID_HANDLE_VALUE;
+#else
+  int m_fd = -1;
+#endif
+};
+
+// A regular file with no other names, i.e. still the partial file an earlier attempt wrote
+bool isOwnPartialFile(const fs::path &path)
+{
+  std::error_code ec;
+  const auto status = fs::symlink_status(path, ec);
+  if (ec || !fs::is_regular_file(status))
+    return false;
+  const auto links = fs::hard_link_count(path, ec);
+  return !ec && links == 1;
+}
+
 // What survives between attempts of one download
 struct Transfer
 {
@@ -323,12 +435,11 @@ Outcome attemptDownload(const AttemptContext &ctx, uint32_t requestId, Transfer 
   } closer{fd};
 
   // What is on disk is the truth for where to resume, not what we think we wrote. Anything that is no longer
-  // our regular file (e.g. swapped for a symlink between attempts) is discarded and the download restarts.
+  // our own file (swapped for a symlink or a hard link between attempts) is discarded and the download restarts.
   uint64_t resumeFrom = 0;
   if (t.started && !t.isDir) {
     std::error_code ec;
-    const auto status = fs::symlink_status(t.tempPath, ec);
-    if (!ec && fs::is_regular_file(status)) {
+    if (isOwnPartialFile(t.tempPath)) {
       const auto onDisk = fs::file_size(t.tempPath, ec);
       t.written = ec ? 0 : onDisk;
     } else {
@@ -355,7 +466,7 @@ Outcome attemptDownload(const AttemptContext &ctx, uint32_t requestId, Transfer 
   }
 
   StallGuard guard(ctx.options.stallWindow, ctx.options.minBytesPerWindow);
-  std::ofstream out;
+  PartialFile out;
   std::vector<uint8_t> packet;
   bool startedThisAttempt = false;
 
@@ -474,20 +585,15 @@ Outcome attemptDownload(const AttemptContext &ctx, uint32_t requestId, Transfer 
       if (t.isDir)
         continue;
       const bool resumed = resumeFrom > 0 && info.offset == resumeFrom;
-      if (resumed) {
-        // The source is already sending only the tail, so a swapped file cannot fall back to a full copy
-        if (!fs::is_regular_file(fs::symlink_status(t.tempPath, ec))) {
-          error = "partial file was replaced while resuming";
-          return Outcome::Fatal;
-        }
-      } else {
+      if (!resumed) {
         t.written = 0;
-        // Removes a planted symlink itself rather than writing through it
+        // Removes a planted link itself rather than writing through it
         fs::remove(t.tempPath, ec);
       }
-      out.open(t.tempPath, std::ios::binary | (resumed ? std::ios::app : std::ios::trunc));
-      if (!out) {
-        error = "cannot write " + FileTransfer::pathToUtf8(t.tempPath);
+      if (!out.open(t.tempPath, resumed)) {
+        // When resuming the source is already sending only the tail, so a swapped file cannot fall back to a full copy
+        error = resumed ? "partial file was replaced while resuming"
+                        : "cannot write " + FileTransfer::pathToUtf8(t.tempPath);
         return Outcome::Fatal;
       }
       if (resumed)
@@ -496,7 +602,7 @@ Outcome attemptDownload(const AttemptContext &ctx, uint32_t requestId, Transfer 
     }
 
     if (type == FileChunkType::Data) {
-      if (!out.is_open()) {
+      if (!out.isOpen()) {
         error = "data before start chunk";
         return Outcome::Fatal;
       }
@@ -504,8 +610,7 @@ Outcome attemptDownload(const AttemptContext &ctx, uint32_t requestId, Transfer 
         error = "source sent more data than announced";
         return Outcome::Fatal;
       }
-      out.write(reinterpret_cast<const char *>(data), dataLen);
-      if (!out) {
+      if (!out.write(data, dataLen)) {
         error = "cannot write " + FileTransfer::pathToUtf8(t.tempPath);
         return Outcome::Fatal;
       }
@@ -520,8 +625,7 @@ Outcome attemptDownload(const AttemptContext &ctx, uint32_t requestId, Transfer 
       }
       if (t.isDir)
         return Outcome::Done;
-      out.close();
-      if (!out) {
+      if (!out.close()) {
         error = "cannot write " + FileTransfer::pathToUtf8(t.tempPath);
         return Outcome::Fatal;
       }
@@ -604,12 +708,5 @@ ClipboardTransferClient::DownloadResult ClipboardTransferClient::downloadFile(
 
 std::string ClipboardTransferClient::getTempDirectory() const
 {
-  // temp_directory_path() is Unicode-aware on Windows, unlike GetTempPathA
-  std::error_code ec;
-  auto dir = fs::temp_directory_path(ec);
-  if (ec)
-    dir = fs::current_path(ec);
-  dir /= "deskflow_transfer";
-  fs::create_directories(dir, ec);
-  return FileTransfer::pathToUtf8(dir);
+  return FileTransfer::privateTempDirectory("deskflow_transfer");
 }

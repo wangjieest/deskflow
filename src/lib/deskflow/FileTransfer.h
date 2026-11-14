@@ -64,6 +64,10 @@ public:
   static std::filesystem::path pathFromUtf8(const std::string &path);
   static std::string pathToUtf8(const std::filesystem::path &path);
 
+  //! A temp folder only the current user can write to: <temp>/<name> on Windows (per-user %TEMP%),
+  //! <temp>/<name>-<uid> with mode 0700 elsewhere, or a fresh mkdtemp folder if that one is not ours
+  static std::string privateTempDirectory(const std::string &name);
+
   //! A peer-supplied relative path reduced to plain components; empty if it tries to leave its folder
   static std::string sanitizeRelativePath(const std::string &path);
 
