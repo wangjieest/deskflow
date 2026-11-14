@@ -47,14 +47,14 @@ QByteArray prefixed(const QByteArray &packet)
 }
 
 // The real sender's Start payload
-std::string start(const std::string &relativePath, bool isDir = false)
+std::string start(const std::string &relativePath, uint64_t size, bool isDir = false)
 {
-  return FileTransfer::createStartChunkEx(1, "ignored", relativePath, 0, isDir);
+  return FileTransfer::createStartChunkEx(1, "ignored", relativePath, size, isDir);
 }
 
 QByteArray wholeFile(const std::string &relativePath, const std::string &content)
 {
-  return chunk(FileChunkType::Start, start(relativePath)) + chunk(FileChunkType::Data, content) +
+  return chunk(FileChunkType::Start, start(relativePath, content.size())) + chunk(FileChunkType::Data, content) +
          chunk(FileChunkType::End, {});
 }
 
@@ -123,7 +123,7 @@ void ClipboardTransferClientTests::nestedFileKeepsFolderStructure()
 
 void ClipboardTransferClientTests::lengthPrefixedPacketsAreAccepted()
 {
-  const auto response = prefixed(chunk(FileChunkType::Start, start("b.txt"))) +
+  const auto response = prefixed(chunk(FileChunkType::Start, start("b.txt", 5))) +
                         prefixed(chunk(FileChunkType::Data, "hel")) + prefixed(chunk(FileChunkType::Data, "lo")) +
                         prefixed(chunk(FileChunkType::End, {}));
 
@@ -135,7 +135,7 @@ void ClipboardTransferClientTests::lengthPrefixedPacketsAreAccepted()
 
 void ClipboardTransferClientTests::directoryEntryCreatesFolder()
 {
-  const auto response = chunk(FileChunkType::Start, start("folder/empty", true)) + chunk(FileChunkType::End, {});
+  const auto response = chunk(FileChunkType::Start, start("folder/empty", 0, true)) + chunk(FileChunkType::End, {});
 
   const auto result = download(response, "/src/folder/empty", m_dir->path());
 
@@ -184,7 +184,7 @@ void ClipboardTransferClientTests::oversizedChunkFailsWithoutLeftovers()
   hostile += static_cast<char>(FileChunkType::Data);
   hostile += be32(0xFFFFFFF8u);
 
-  auto result = download(chunk(FileChunkType::Start, start("a.txt")) + hostile, "/src/a.txt", m_dir->path());
+  auto result = download(chunk(FileChunkType::Start, start("a.txt", 10)) + hostile, "/src/a.txt", m_dir->path());
   QVERIFY(!result.success);
   QCOMPARE(QString::fromStdString(result.error), QStringLiteral("chunk too large"));
   QVERIFY2(allEntries(m_dir->path()).isEmpty(), qPrintable(allEntries(m_dir->path()).join(", ")));
@@ -197,12 +197,45 @@ void ClipboardTransferClientTests::oversizedChunkFailsWithoutLeftovers()
 
 void ClipboardTransferClientTests::truncatedTransferRemovesPartialFile()
 {
-  const auto response = chunk(FileChunkType::Start, start("big.bin")) + chunk(FileChunkType::Data, "partial");
+  const auto response = chunk(FileChunkType::Start, start("big.bin", 100)) + chunk(FileChunkType::Data, "partial");
 
   const auto result = download(response, "/src/big.bin", m_dir->path());
 
   QVERIFY(!result.success);
   QVERIFY2(allEntries(m_dir->path()).isEmpty(), qPrintable(allEntries(m_dir->path()).join(", ")));
+}
+
+void ClipboardTransferClientTests::moreDataThanAnnouncedFails()
+{
+  const auto response = chunk(FileChunkType::Start, start("a.txt", 3)) + chunk(FileChunkType::Data, "abc") +
+                        chunk(FileChunkType::Data, "d") + chunk(FileChunkType::End, {});
+
+  const auto result = download(response, "/src/a.txt", m_dir->path());
+
+  QVERIFY(!result.success);
+  QCOMPARE(QString::fromStdString(result.error), QStringLiteral("source sent more data than announced"));
+  QVERIFY2(allEntries(m_dir->path()).isEmpty(), qPrintable(allEntries(m_dir->path()).join(", ")));
+}
+
+void ClipboardTransferClientTests::plantedSymlinkIsNotFollowed()
+{
+#ifdef Q_OS_WIN
+  QSKIP("creating symlinks needs extra privileges on Windows");
+#else
+  QTemporaryDir victimDir;
+  const auto victim = victimDir.filePath("victim.txt");
+  QFile victimFile(victim);
+  QVERIFY(victimFile.open(QIODevice::WriteOnly));
+  victimFile.write("keep");
+  victimFile.close();
+  QVERIFY(QFile::link(victim, m_dir->filePath("a.txt.pasting")));
+
+  const auto result = download(wholeFile("a.txt", "new"), "/src/a.txt", m_dir->path());
+
+  QVERIFY2(result.success, result.error.c_str());
+  QCOMPARE(readFile(victim), QByteArray("keep"));
+  QCOMPARE(readFile(m_dir->filePath("a.txt")), QByteArray("new"));
+#endif
 }
 
 void ClipboardTransferClientTests::sourceErrorIsReported()

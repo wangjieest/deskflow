@@ -148,6 +148,8 @@ struct StartInfo
 {
   std::string relativePath;
   bool isDir = false;
+  bool hasSize = false;
+  uint64_t size = 0;
 };
 
 // Start payload is requestId(4) + type(1) + JSON; locate the JSON rather than trusting the prefix size
@@ -166,6 +168,10 @@ StartInfo parseStartPayload(const uint8_t *data, uint32_t len)
   if (info.relativePath.empty())
     info.relativePath = obj.value(QStringLiteral("name")).toString().toStdString();
   info.isDir = obj.value(QStringLiteral("isDir")).toBool();
+  if (const auto size = obj.value(QStringLiteral("size")); size.isDouble() && size.toDouble() >= 0) {
+    info.hasSize = true;
+    info.size = static_cast<uint64_t>(size.toDouble());
+  }
   return info;
 }
 
@@ -272,6 +278,9 @@ ClipboardTransferClient::DownloadResult ClipboardTransferClient::downloadFile(
   std::ofstream out;
   bool started = false;
   bool isDir = false;
+  bool limitToAnnounced = false;
+  uint64_t announcedSize = 0;
+  uint64_t written = 0;
   std::vector<uint8_t> packet;
 
   const auto fail = [&](const std::string &error) {
@@ -353,6 +362,8 @@ ClipboardTransferClient::DownloadResult ClipboardTransferClient::downloadFile(
         break;
       }
       isDir = info.isDir;
+      limitToAnnounced = info.hasSize;
+      announcedSize = info.size;
       finalPath = pathFromUtf8(destDir) / pathFromUtf8(relativePath);
       std::error_code ec;
       if (isDir) {
@@ -368,6 +379,8 @@ ClipboardTransferClient::DownloadResult ClipboardTransferClient::downloadFile(
         finalPath = uniquePath(finalPath);
       tempPath = finalPath;
       tempPath += ".pasting";
+      // Removes a planted symlink itself rather than writing through it
+      fs::remove(tempPath, ec);
       out.open(tempPath, std::ios::binary | std::ios::trunc);
       if (!out) {
         fail("cannot write " + pathToUtf8(tempPath));
@@ -379,6 +392,11 @@ ClipboardTransferClient::DownloadResult ClipboardTransferClient::downloadFile(
     if (type == FileChunkType::Data) {
       if (!out.is_open()) {
         fail("data before start chunk");
+        break;
+      }
+      written += dataLen;
+      if (limitToAnnounced && written > announcedSize) {
+        fail("source sent more data than announced");
         break;
       }
       out.write(reinterpret_cast<const char *>(data), dataLen);

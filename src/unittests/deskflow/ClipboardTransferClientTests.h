@@ -23,6 +23,8 @@ private Q_SLOTS:
   void keepExistingPicksFreeName();
   void oversizedChunkFailsWithoutLeftovers();
   void truncatedTransferRemovesPartialFile();
+  void moreDataThanAnnouncedFails();
+  void plantedSymlinkIsNotFollowed();
   void sourceErrorIsReported();
 
 private:
