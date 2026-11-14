@@ -12,7 +12,8 @@
 
 #define SHIFT_ID_L kKeyShift_L
 #define SHIFT_ID_R kKeyShift_R
-#define SHIFT_BUTTON 57
+#define SHIFT_BUTTON 57   // kVK_Shift + 1
+#define SHIFT_R_BUTTON 61 // kVK_RightShift + 1
 #define A_CHAR_ID 0x00000061
 #define A_CHAR_BUTTON 001
 
@@ -68,11 +69,12 @@ void OSXKeyStateTests::fakePollShift()
   keyState.fakeKeyUp(1);
   QVERIFY(!isKeyPressed(keyState, SHIFT_BUTTON));
 
+  // The shadow state tracks the physical key, so right shift is its own button
   keyState.fakeKeyDown(SHIFT_ID_R, 0, 2, "en");
-  QVERIFY(isKeyPressed(keyState, SHIFT_BUTTON));
+  QVERIFY(isKeyPressed(keyState, SHIFT_R_BUTTON));
 
   keyState.fakeKeyUp(2);
-  QVERIFY(!isKeyPressed(keyState, SHIFT_BUTTON));
+  QVERIFY(!isKeyPressed(keyState, SHIFT_R_BUTTON));
 }
 
 void OSXKeyStateTests::fakePollChar()
